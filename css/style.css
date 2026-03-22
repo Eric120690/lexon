@@ -2531,3 +2531,87 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* ── Order exercise: actions row ── */
+  .lt-order-actions-row {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0 4px;
+  }
+  .lt-order-reset-btn {
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.45);
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .lt-order-reset-btn:hover { background: rgba(255,0,110,0.1); border-color: rgba(255,0,110,0.3); color: var(--neon-pink); }
+  .lt-order-check-btn {
+    flex: 1;
+    padding: 7px 14px;
+    background: rgba(0,245,255,0.1);
+    border: 1px solid rgba(0,245,255,0.3);
+    border-radius: 8px;
+    color: var(--neon-cyan);
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .lt-order-check-btn:hover:not(:disabled) { background: rgba(0,245,255,0.18); }
+  .lt-order-check-btn:disabled { cursor: not-allowed; }
+
+  /* ── Cached exercise banner ── */
+  .lt-cached-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(57,255,20,0.06);
+    border: 1px solid rgba(57,255,20,0.2);
+    border-radius: 12px;
+  }
+  .lt-cached-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+  .lt-cached-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .lt-cached-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--neon-green);
+    font-family: 'Syne', sans-serif;
+  }
+  .lt-cached-date {
+    font-size: 0.62rem;
+    color: rgba(255,255,255,0.3);
+    font-family: 'Space Mono', monospace;
+    margin-top: 2px;
+  }
+  .lt-cached-use-btn {
+    padding: 8px 14px;
+    background: rgba(57,255,20,0.12);
+    border: 1px solid rgba(57,255,20,0.35);
+    border-radius: 8px;
+    color: var(--neon-green);
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .lt-cached-use-btn:hover {
+    background: rgba(57,255,20,0.22);
+    transform: translateY(-1px);
+  }
