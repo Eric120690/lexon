@@ -4081,7 +4081,7 @@ function _ltHighlight(text, words) {
 
 // Thứ tự bài tập
 const _ltExOrder = ['mcq', 'match', 'fill', 'order'];
-const _ltExNames = { mcq: '📝 Trắc Nghiệm', match: '🔗 Nối Từ', fill: '✏️ Điền Từ', order: '🔀 Sắp Xếp Câu' };
+const _ltExNames = { mcq: '📝 Trắc Nghiệm', match: '🔗 Nối Từ', fill: '📋 Chọn Đáp Án', order: '🔀 Sắp Xếp Câu' };
 
 function _ltRenderExercise(groupIdx, exIdx) {
   // Hết bài tập → kết quả
@@ -4285,19 +4285,54 @@ window._ltMatchSelect = function(el, type) {
   }
 };
 
-// ── FILL IN THE BLANK ──
+// ── FILL IN THE BLANK → TRẮC NGHIỆM CHỌN ĐÁP ÁN ──
 function _ltBuildFill(items, gi, ei) {
+  // Sinh 3 đáp án sai từ các answer khác trong nhóm
+  function _buildOpts(correctAnswer, allItems, idx) {
+    const others = allItems
+      .filter((_, i) => i !== idx)
+      .map(x => x.answer)
+      .filter((v, i, arr) => arr.indexOf(v) === i && v.toLowerCase() !== correctAnswer.toLowerCase());
+    // Shuffle và lấy tối đa 3
+    for (let i = others.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [others[i], others[j]] = [others[j], others[i]];
+    }
+    const wrongs = others.slice(0, 3);
+    // Nếu không đủ 3 wrong → pad bằng ký tự giả
+    const pads = ['option X', 'option Y', 'option Z'];
+    let pi = 0;
+    while (wrongs.length < 3) wrongs.push(pads[pi++] || '—');
+    // Gộp + shuffle
+    const opts = [correctAnswer, ...wrongs];
+    for (let i = opts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [opts[i], opts[j]] = [opts[j], opts[i]];
+    }
+    return opts;
+  }
+
+  const labels = ['A', 'B', 'C', 'D'];
   return `
     <div class="lt-fill">
-      <div class="lt-fill-instruction">Điền từ thích hợp vào chỗ trống</div>
-      ${items.map((item, i) => `
+      <div class="lt-fill-instruction">Chọn từ thích hợp điền vào chỗ trống</div>
+      ${items.map((item, i) => {
+        const opts = _buildOpts(item.answer, items, i);
+        return `
         <div class="lt-fill-item" id="ltFillItem${i}">
-          <div class="lt-fill-sentence">${item.sentence.replace('___', `<input class="lt-fill-input" id="ltFillInput${i}" placeholder="..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`)}</div>
-          <div class="lt-fill-hint">💡 ${item.hint}</div>
+          <div class="lt-fill-sentence">${h(item.sentence).replace('___', '<span class="lt-fill-blank">___</span>')}</div>
+          <div class="lt-fill-hint">💡 ${h(item.hint)}</div>
+          <div class="lt-fill-opts" id="ltFillOpts${i}">
+            ${opts.map((opt, oi) => `
+              <button class="lt-fill-opt-btn" id="ltFillOpt${i}_${oi}"
+                onclick="_ltCheckFillOpt(${i},'${opt.replace(/'/g,"\\'")}','${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">
+                <span class="lt-fill-opt-label">${labels[oi]}</span>${h(opt)}
+              </button>
+            `).join('')}
+          </div>
           <div class="lt-fill-feedback" id="ltFillFb${i}"></div>
-          <button class="lt-fill-check" onclick="_ltCheckFill(${i},'${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">Kiểm tra</button>
-        </div>
-      `).join('')}
+        </div>`;
+      }).join('')}
       <div id="ltFillScore" class="lt-score-row" style="display:none"></div>
       <button class="lt-next-ex-btn" id="ltFillNext" style="display:none"
         onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
@@ -4308,31 +4343,37 @@ function _ltBuildFill(items, gi, ei) {
 }
 
 let _ltFillDone = 0, _ltFillCorrect = 0;
-window._ltCheckFill = function(idx, answer, total, gi, ei) {
-  const input = document.getElementById(`ltFillInput${idx}`);
-  const fb = document.getElementById(`ltFillFb${idx}`);
-  const btn = document.querySelector(`#ltFillItem${idx} .lt-fill-check`);
-  if (!input || btn.disabled) return;
+window._ltCheckFillOpt = function(idx, chosen, answer, total, gi, ei) {
+  const optsEl = document.getElementById(`ltFillOpts${idx}`);
+  const fb     = document.getElementById(`ltFillFb${idx}`);
+  if (!optsEl || optsEl.dataset.done) return;
+  optsEl.dataset.done = '1';
 
-  const val = input.value.trim().toLowerCase();
-  const correct = answer.toLowerCase();
-  btn.disabled = true;
-  input.disabled = true;
+  // Disable tất cả nút trong câu này
+  optsEl.querySelectorAll('.lt-fill-opt-btn').forEach(btn => {
+    btn.disabled = true;
+    const btnWord = btn.textContent.trim().slice(1).trim(); // bỏ label A/B/C/D
+    if (btn.querySelector('.lt-fill-opt-label')) {
+      const label = btn.querySelector('.lt-fill-opt-label').textContent;
+      const word  = btn.textContent.replace(label, '').trim();
+      if (word.toLowerCase() === answer.toLowerCase()) btn.classList.add('fill-opt-correct');
+      else if (word.toLowerCase() === chosen.toLowerCase()) btn.classList.add('fill-opt-wrong');
+    }
+  });
 
-  if (val === correct) {
-    fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
-    input.classList.add('fill-correct');
+  const isCorrect = chosen.toLowerCase() === answer.toLowerCase();
+  if (isCorrect) {
+    fb.innerHTML = `<span class="lt-fb-correct">✓ Chính xác!</span>`;
     _ltFillCorrect++;
   } else {
-    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Đáp án: <strong>${answer}</strong></span>`;
-    input.classList.add('fill-wrong');
+    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Đáp án đúng: <strong>${h(answer)}</strong></span>`;
   }
 
   _ltFillDone++;
   if (_ltFillDone >= total) {
     document.getElementById('ltFillScore').style.display = 'flex';
     document.getElementById('ltFillScore').innerHTML =
-      `<span>Điền đúng:</span><strong style="color:var(--neon-green)">${_ltFillCorrect}/${total}</strong>`;
+      `<span>Đúng:</span><strong style="color:var(--neon-green)">${_ltFillCorrect}/${total}</strong>`;
     document.getElementById('ltFillNext').style.display = 'block';
     _ltScore += _ltFillCorrect;
     _ltTotal += total;
