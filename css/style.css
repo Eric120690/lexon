@@ -2138,6 +2138,20 @@
     margin-bottom: 4px;
   }
   .lt-menu-sub { font-size: 0.72rem; color: rgba(255,255,255,0.35); margin-bottom: 16px; }
+
+  .lt-cloud-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.68rem; font-family: 'Space Mono', monospace;
+    padding: 5px 12px; border-radius: 20px; white-space: nowrap;
+  }
+  .lt-cloud-saved {
+    background: rgba(57,255,20,0.08); border: 1px solid rgba(57,255,20,0.3);
+    color: var(--neon-green);
+  }
+  .lt-cloud-saving {
+    background: rgba(0,245,255,0.06); border: 1px solid rgba(0,245,255,0.2);
+    color: rgba(0,245,255,0.6);
+  }
   
   .lt-group-list { display: flex; flex-direction: column; gap: 10px; }
   .lt-group-card {
