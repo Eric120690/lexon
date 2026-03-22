@@ -3649,7 +3649,7 @@ function openLuyenTap() {
   _ltRenderWordPreview();
 }
 
-function _ltRenderWordPreview() {
+async function _ltRenderWordPreview() {
   const body = document.getElementById('ltBody');
   const count = _ltWords.length;
 
@@ -3664,7 +3664,6 @@ function _ltRenderWordPreview() {
   }
 
   if (count > LT_MAX_WORDS) {
-    // Hiện thống kê + thông báo giới hạn
     body.innerHTML = `
       <div class="lt-preview">
         <div class="lt-preview-stats">
@@ -3695,13 +3694,38 @@ function _ltRenderWordPreview() {
     return;
   }
 
-  // ≤ 20 từ → hiện danh sách + nút tạo
+  // ── Kiểm tra cache IDB ──
+  const cacheKey = 'lt::' + (currentPack?.id || 'default');
+  const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
+  let cached = null;
+  try { cached = await IDB.get(cacheKey); } catch(e) {}
+
+  const hasSameWords = cached && cached.wordSnapshot === wordSnapshot;
+  const savedDate = cached ? new Date(cached.savedAt) : null;
+  const dateStr = savedDate ? savedDate.toLocaleDateString('vi-VN', {
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
+  }) : '';
+
   const wordChips = _ltWords.map(w => `
     <div class="lt-preview-word-row">
       <span class="lt-preview-word">${h(w.word)}</span>
       <span class="lt-preview-meaning">${h(w.meaning)}</span>
     </div>
   `).join('');
+
+  // Banner bài cũ (nếu có)
+  const cachedBanner = cached ? `
+    <div class="lt-cached-banner">
+      <div class="lt-cached-info">
+        <span class="lt-cached-icon">💾</span>
+        <div>
+          <div class="lt-cached-title">${hasSameWords ? 'Có bài tập đã lưu từ trước' : 'Có bài tập cũ (danh sách từ đã thay đổi)'}</div>
+          <div class="lt-cached-date">Lưu lúc ${dateStr} · ${cached.groups?.length || 0} nhóm</div>
+        </div>
+      </div>
+      <button class="lt-cached-use-btn" onclick="_ltLoadCached()">▶ Dùng bài cũ</button>
+    </div>
+  ` : '';
 
   body.innerHTML = `
     <div class="lt-preview">
@@ -3720,11 +3744,13 @@ function _ltRenderWordPreview() {
         </div>
       </div>
 
+      ${cachedBanner}
+
       <div class="lt-preview-list-label">Danh sách từ sẽ luyện tập</div>
       <div class="lt-preview-word-list">${wordChips}</div>
 
       <button class="lt-start-ex-btn" style="margin-top:16px" onclick="_ltGenerate()">
-        ✦ Tạo bài tập ngay →
+        ${cached ? '✦ Tạo bài tập mới →' : '✦ Tạo bài tập ngay →'}
       </button>
     </div>
   `;
@@ -3735,6 +3761,25 @@ function closeLuyenTap() {
   if (overlay) {
     overlay.classList.remove('show');
     document.body.style.overflow = '';
+  }
+}
+
+async function _ltLoadCached() {
+  const cacheKey = 'lt::' + (currentPack?.id || 'default');
+  try {
+    const cached = await IDB.get(cacheKey);
+    if (!cached || !cached.groups?.length) {
+      showToast('error', '⚠ Không tìm thấy bài tập đã lưu');
+      return;
+    }
+    _ltGroups = cached.groups;
+    _ltCurrentGroup = 0;
+    _ltCurrentEx = 0;
+    _ltScore = 0;
+    _ltTotal = 0;
+    _ltRenderGroupMenu();
+  } catch(e) {
+    showToast('error', '⚠ Lỗi tải bài tập: ' + e.message);
   }
 }
 
@@ -3835,6 +3880,16 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
     _ltCurrentEx = 0;
     _ltScore = 0;
     _ltTotal = 0;
+
+    // ── Lưu vào IDB để dùng lại lần sau ──
+    const cacheKey = 'lt::' + (currentPack?.id || 'default');
+    const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
+    IDB.set(cacheKey, {
+      groups: _ltGroups,
+      wordSnapshot,
+      savedAt: Date.now()
+    }).catch(() => {});
+
     _ltRenderGroupMenu();
   } catch(e) {
     document.getElementById('ltBody').innerHTML = `
@@ -4180,14 +4235,21 @@ window._ltCheckFill = function(idx, answer, total, gi, ei) {
 function _ltBuildOrder(items, gi, ei) {
   return `
     <div class="lt-order">
-      <div class="lt-order-instruction">Sắp xếp các từ thành câu hoàn chỉnh</div>
+      <div class="lt-order-instruction">Sắp xếp các từ thành câu hoàn chỉnh — nhấn <strong>Kiểm tra</strong> sau khi xong</div>
       ${items.map((item, i) => {
         const shuffled = [...item.words].sort(() => Math.random() - 0.5);
         return `
           <div class="lt-order-item" id="ltOrderItem${i}">
-            <div class="lt-order-drop" id="ltOrderDrop${i}" data-answer="${item.answer}"></div>
+            <div class="lt-order-drop" id="ltOrderDrop${i}"></div>
             <div class="lt-order-pool" id="ltOrderPool${i}">
-              ${shuffled.map(w => `<button class="lt-order-word" onclick="_ltOrderClick(this,${i},'${w.replace(/'/g,"\\'")}','${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">${w}</button>`).join('')}
+              ${shuffled.map(w => `<button class="lt-order-word" data-word="${w.replace(/"/g,'&quot;')}" onclick="_ltOrderPickWord(this,${i})">${w}</button>`).join('')}
+            </div>
+            <div class="lt-order-actions-row">
+              <button class="lt-order-reset-btn" onclick="_ltOrderReset(${i})">↺ Xóa</button>
+              <button class="lt-order-check-btn" id="ltOrderCheck${i}"
+                onclick="_ltOrderCheck(${i},'${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">
+                ✓ Kiểm tra
+              </button>
             </div>
             <div class="lt-order-feedback" id="ltOrderFb${i}"></div>
           </div>`;
@@ -4202,49 +4264,82 @@ function _ltBuildOrder(items, gi, ei) {
 }
 
 function _ltInitOrder(items) {
-  window._ltOrderState = { done: 0, correct: 0, total: items.length };
+  window._ltOrderState = { done: 0, correct: 0, total: items.length, checked: new Set() };
 }
 
-window._ltOrderClick = function(btn, itemIdx, word, answer, total, gi, ei) {
-  if (btn.classList.contains('used')) return;
+// Click từ trong pool → thêm vào drop
+window._ltOrderPickWord = function(btn, itemIdx) {
+  if (btn.classList.contains('used') || btn.disabled) return;
   btn.classList.add('used');
   const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
   const chip = document.createElement('span');
   chip.className = 'lt-order-chip';
-  chip.textContent = word;
+  chip.textContent = btn.dataset.word;
+  // Click chip → trả về pool
   chip.onclick = () => {
+    const fb = document.getElementById(`ltOrderFb${itemIdx}`);
+    if (btn.disabled) return; // đã kiểm tra rồi
     chip.remove();
     btn.classList.remove('used');
+    fb.innerHTML = ''; // xóa feedback cũ khi sửa
   };
   drop.appendChild(chip);
+};
 
-  // Kiểm tra khi đủ từ
+// Reset 1 câu
+window._ltOrderReset = function(itemIdx) {
+  const state = window._ltOrderState;
+  if (state && state.checked.has(itemIdx)) return; // đã kiểm tra rồi
+  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
   const pool = document.getElementById(`ltOrderPool${itemIdx}`);
-  const allWords = pool.querySelectorAll('.lt-order-word');
-  const usedCount = pool.querySelectorAll('.used').length;
-  if (usedCount === allWords.length) {
-    // Disable toàn bộ buttons + chips để không click lại được
-    allWords.forEach(b => { b.disabled = true; b.style.pointerEvents = 'none'; });
-    drop.querySelectorAll('.lt-order-chip').forEach(c => { c.style.pointerEvents = 'none'; c.style.cursor = 'default'; });
+  drop.innerHTML = '';
+  pool.querySelectorAll('.lt-order-word').forEach(b => b.classList.remove('used'));
+  document.getElementById(`ltOrderFb${itemIdx}`).innerHTML = '';
+};
 
-    const built = Array.from(drop.querySelectorAll('.lt-order-chip')).map(c=>c.textContent).join(' ');
-    const fb = document.getElementById(`ltOrderFb${itemIdx}`);
-    const state = window._ltOrderState;
-    if (built.toLowerCase().trim() === answer.toLowerCase().trim()) {
-      fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
-      state.correct++;
-    } else {
-      fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Câu đúng: <em>${answer}</em></span>`;
-    }
-    state.done++;
-    if (state.done >= total) {
-      document.getElementById('ltOrderScore').style.display = 'flex';
-      document.getElementById('ltOrderScore').innerHTML =
-        `<span>Đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${total}</strong>`;
-      document.getElementById('ltOrderNext').style.display = 'block';
-      _ltScore += state.correct;
-      _ltTotal += total;
-    }
+// Kiểm tra 1 câu khi nhấn nút
+window._ltOrderCheck = function(itemIdx, answer, total, gi, ei) {
+  const state = window._ltOrderState;
+  if (!state || state.checked.has(itemIdx)) return;
+
+  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
+  const chips = Array.from(drop.querySelectorAll('.lt-order-chip'));
+  if (!chips.length) {
+    document.getElementById(`ltOrderFb${itemIdx}`).innerHTML =
+      `<span class="lt-fb-wrong">⚠ Chưa xếp từ nào!</span>`;
+    return;
+  }
+
+  // Lock lại
+  state.checked.add(itemIdx);
+  const pool = document.getElementById(`ltOrderPool${itemIdx}`);
+  pool.querySelectorAll('.lt-order-word').forEach(b => { b.disabled = true; b.classList.add('used'); });
+  chips.forEach(c => { c.style.cursor = 'default'; c.onclick = null; });
+  document.getElementById(`ltOrderCheck${itemIdx}`).disabled = true;
+  document.getElementById(`ltOrderCheck${itemIdx}`).style.opacity = '0.4';
+
+  // So sánh — normalize khoảng trắng, bỏ dấu chấm cuối
+  const built  = chips.map(c => c.textContent.trim()).join(' ').toLowerCase().replace(/[.,!?]+$/, '').trim();
+  const expect = answer.toLowerCase().replace(/[.,!?]+$/, '').trim();
+
+  const fb = document.getElementById(`ltOrderFb${itemIdx}`);
+  if (built === expect) {
+    fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
+    drop.style.borderColor = 'rgba(57,255,20,0.4)';
+    state.correct++;
+  } else {
+    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Câu đúng: <em>${answer}</em></span>`;
+    drop.style.borderColor = 'rgba(255,0,110,0.4)';
+  }
+
+  state.done++;
+  if (state.done >= total) {
+    document.getElementById('ltOrderScore').style.display = 'flex';
+    document.getElementById('ltOrderScore').innerHTML =
+      `<span>Đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${total}</strong>`;
+    document.getElementById('ltOrderNext').style.display = 'block';
+    _ltScore += state.correct;
+    _ltTotal += total;
   }
 };
 
