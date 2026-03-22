@@ -1085,7 +1085,7 @@ function renderFlashcard() {
     <div class="action-row-v2">
       <button class="btn-nav-arrow btn-nav-prev" onclick="prevCard()" ${(!loopSize && currentIndex===0)?'disabled':''} title="Quay lại (←)">
         <span class="nav-arrow-icon">←</span>
-        <span class="nav-arrow-label">Lật thẻ</span>
+        <span class="nav-arrow-label">Quay lại</span>
       </button>
       <button class="btn btn-mastered" onclick="markMastered()">✓ Đã Thuộc!</button>
       <button class="btn-nav-arrow btn-nav-next" onclick="skipWord()" title="Bỏ qua (→)">
@@ -1096,8 +1096,7 @@ function renderFlashcard() {
     <button class="btn-luyen-tap" onclick="openLuyenTap()">
       <span class="lt-icon">⚡</span>
       <div>
-        <span class="lt-label">Luyện Tập</span>
-        <span class="lt-sub">AI tạo bài tập từ các từ đang học</span>
+        <span class="lt-label">Luyện tập cùng AI</span>
       </div>
     </button>
     <div class="arrow-nav-hint-row">
@@ -1107,6 +1106,16 @@ function renderFlashcard() {
 
   isFlipped=false;
   autoSpeakCurrent();
+  // Auto-scale fc-word nếu text quá dài
+  setTimeout(() => {
+    document.querySelectorAll('.fc-word').forEach(el => {
+      const len = el.textContent.trim().length;
+      if (len > 30) el.style.fontSize = 'clamp(0.9rem, 3.5vw, 1.4rem)';
+      else if (len > 20) el.style.fontSize = 'clamp(1rem, 4vw, 1.8rem)';
+      else if (len > 12) el.style.fontSize = 'clamp(1.2rem, 4.5vw, 2.1rem)';
+      else el.style.fontSize = '';
+    });
+  }, 30);
 }
 
 function flipCard() {
@@ -3661,6 +3670,17 @@ function closeLuyenTap() {
 }
 
 async function _ltGenerate() {
+  const apiKey = getMavisApiKey();
+  if (!apiKey) {
+    document.getElementById('ltBody').innerHTML = `
+      <div class="lt-error">
+        <div style="font-size:2rem">🔑</div>
+        <div>Chưa có API Key. Admin cần cài đặt MAVIS API Key trong Admin Panel.</div>
+        <button class="lt-retry-btn" onclick="closeLuyenTap()">Đóng</button>
+      </div>`;
+    return;
+  }
+
   const wordList = _ltWords.slice(0, 30).map(w =>
     `${w.word}|${w.meaning}|${w.type||''}|${w.level||''}`
   ).join('\n');
@@ -3683,7 +3703,7 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
   "groups": [
     {
       "theme": "tên chủ đề",
-      "words": ["word1", "word2", ...],
+      "words": ["word1", "word2"],
       "passage": "đoạn văn tiếng Anh",
       "passage_vi": "dịch nghĩa tiếng Việt ngắn gọn",
       "exercises": {
@@ -3697,7 +3717,7 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
           { "sentence": "câu với ___ thay từ cần điền", "answer": "từ cần điền", "hint": "gợi ý ngắn" }
         ],
         "order": [
-          { "words": ["từ1","từ2","từ3",...], "answer": "câu hoàn chỉnh" }
+          { "words": ["từ1","từ2","từ3"], "answer": "câu hoàn chỉnh" }
         ]
       }
     }
@@ -3705,20 +3725,36 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
 }`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(`${MAVIS_BASE_URL}/v1/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('API Key không hợp lệ');
+      if (res.status === 402) throw new Error('Hết quota MAVIS');
+      throw new Error(`Lỗi server ${res.status}`);
+    }
+
     const data = await res.json();
-    const text = data.content?.[0]?.text || '';
+    let text = '';
+    if (Array.isArray(data.content)) text = data.content.map(b => b.text || '').join('');
+    else if (typeof data.content === 'string') text = data.content;
+    else if (data.choices) text = data.choices?.[0]?.message?.content || '';
+
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
     _ltGroups = parsed.groups || [];
+    if (!_ltGroups.length) throw new Error('AI không trả về nhóm từ nào');
     _ltCurrentGroup = 0;
     _ltCurrentEx = 0;
     _ltScore = 0;
@@ -3728,7 +3764,7 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
     document.getElementById('ltBody').innerHTML = `
       <div class="lt-error">
         <div style="font-size:2rem">⚠</div>
-        <div>Không tạo được bài tập. Vui lòng thử lại.</div>
+        <div>Không tạo được bài tập: ${e.message}</div>
         <button class="lt-retry-btn" onclick="_ltGenerate()">↺ Thử lại</button>
       </div>`;
   }
