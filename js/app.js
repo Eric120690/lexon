@@ -3613,13 +3613,14 @@ if (!navigator.onLine) _showOfflineBanner(true);
 //  ⚡ LUYỆN TẬP — AI-powered practice session
 // ============================================================
 
-let _ltWords = [];       // từ đang học (không mastered)
-let _ltGroups = [];      // nhóm từ do AI tạo
+let _ltWords = [];
+let _ltGroups = [];
 let _ltCurrentGroup = 0;
 let _ltExercises = [];
 let _ltCurrentEx = 0;
 let _ltScore = 0;
 let _ltTotal = 0;
+let _ltIsSaved = false; // đã lưu lên Firebase chưa
 const LT_MAX_WORDS = 20;
 
 function openLuyenTap() {
@@ -3694,13 +3695,14 @@ async function _ltRenderWordPreview() {
     return;
   }
 
-  // ── Kiểm tra cache IDB ──
+  // ── Kiểm tra IDB local trước ──
   const cacheKey = 'lt::' + (currentPack?.id || 'default');
   const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
   let cached = null;
   try { cached = await IDB.get(cacheKey); } catch(e) {}
 
-  const hasSameWords = cached && cached.wordSnapshot === wordSnapshot;
+  const hasLocal = cached && cached.groups?.length;
+  const hasSameWords = hasLocal && cached.wordSnapshot === wordSnapshot;
   const savedDate = cached ? new Date(cached.savedAt) : null;
   const dateStr = savedDate ? savedDate.toLocaleDateString('vi-VN', {
     day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
@@ -3713,17 +3715,29 @@ async function _ltRenderWordPreview() {
     </div>
   `).join('');
 
-  // Banner bài cũ (nếu có)
-  const cachedBanner = cached ? `
+  // Banner bài đã lưu local
+  const cachedBanner = hasLocal ? `
     <div class="lt-cached-banner">
       <div class="lt-cached-info">
         <span class="lt-cached-icon">💾</span>
         <div>
-          <div class="lt-cached-title">${hasSameWords ? 'Có bài tập đã lưu từ trước' : 'Có bài tập cũ (danh sách từ đã thay đổi)'}</div>
+          <div class="lt-cached-title">${hasSameWords ? 'Có bài tập đã lưu trên máy' : 'Có bài cũ (danh sách từ đã thay đổi)'}</div>
           <div class="lt-cached-date">Lưu lúc ${dateStr} · ${cached.groups?.length || 0} nhóm</div>
         </div>
       </div>
-      <button class="lt-cached-use-btn" onclick="_ltLoadCached()">▶ Dùng bài cũ</button>
+      <button class="lt-cached-use-btn" onclick="_ltLoadCached()">▶ Dùng ngay</button>
+    </div>
+  ` : '';
+
+  // Banner tải từ cloud (chỉ khi online + đăng nhập)
+  const cloudBanner = isLoggedIn() ? `
+    <div class="lt-cloud-pull-banner">
+      <span class="lt-cached-icon">☁</span>
+      <div style="flex:1">
+        <div class="lt-cached-title" style="color:var(--neon-cyan)">Tải bài tập từ cloud</div>
+        <div class="lt-cached-date">Bài tập bạn đã lưu trên thiết bị khác</div>
+      </div>
+      <button class="lt-cached-use-btn" id="ltPullBtn" style="border-color:rgba(0,245,255,0.35);color:var(--neon-cyan);background:rgba(0,245,255,0.08)" onclick="_ltPullFromFirebase()">⬇ Tải xuống</button>
     </div>
   ` : '';
 
@@ -3745,12 +3759,13 @@ async function _ltRenderWordPreview() {
       </div>
 
       ${cachedBanner}
+      ${cloudBanner}
 
       <div class="lt-preview-list-label">Danh sách từ sẽ luyện tập</div>
       <div class="lt-preview-word-list">${wordChips}</div>
 
       <button class="lt-start-ex-btn" style="margin-top:16px" onclick="_ltGenerate()">
-        ${cached ? '✦ Tạo bài tập mới →' : '✦ Tạo bài tập ngay →'}
+        ✦ Tạo bài tập mới bằng AI →
       </button>
     </div>
   `;
@@ -3764,6 +3779,13 @@ function closeLuyenTap() {
   }
 }
 
+// ── Key Firebase: users/{uid}/luyenTap/{packId} ──
+function _ltFirebaseRef() {
+  const packId = currentPack?.id || 'default';
+  return window._doc(window._db, 'users', getUID(), 'luyenTap', packId);
+}
+
+// Load từ IDB local (không gọi network)
 async function _ltLoadCached() {
   const cacheKey = 'lt::' + (currentPack?.id || 'default');
   try {
@@ -3777,9 +3799,73 @@ async function _ltLoadCached() {
     _ltCurrentEx = 0;
     _ltScore = 0;
     _ltTotal = 0;
+    _ltIsSaved = true; // đã có trên cloud (bài này từ cloud kéo về)
     _ltRenderGroupMenu();
   } catch(e) {
     showToast('error', '⚠ Lỗi tải bài tập: ' + e.message);
+  }
+}
+
+// Lưu bài tập lên Firebase + cache IDB
+async function _ltSaveToFirebase() {
+  if (!isLoggedIn()) { showToast('error', '⚠ Cần đăng nhập để lưu'); return; }
+  if (!_ltGroups.length) return;
+  const btn = document.getElementById('ltSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Đang lưu...'; }
+  try {
+    const now = Date.now();
+    const packId = currentPack?.id || 'default';
+    const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
+    const payload = {
+      groups: _ltGroups,
+      wordSnapshot,
+      packId,
+      packName: currentPack?.name || '',
+      savedAt: now
+    };
+    // Lưu Firebase
+    await window._setDoc(_ltFirebaseRef(), payload, { merge: false });
+    // Cache IDB luôn
+    await IDB.set('lt::' + packId, payload).catch(() => {});
+    _ltIsSaved = true;
+    _ltRenderGroupMenu();
+    showToast('success', '☁ Đã lưu bài tập lên cloud!');
+  } catch(e) {
+    showToast('error', '✕ Lỗi lưu: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '☁ Lưu bài tập lên cloud'; }
+  }
+}
+
+// Kéo bài tập từ Firebase về (user chủ động nhấn)
+async function _ltPullFromFirebase() {
+  if (!isLoggedIn()) { showToast('error', '⚠ Cần đăng nhập'); return; }
+  if (!navigator.onLine) { showToast('error', '⚠ Không có mạng'); return; }
+  const body = document.getElementById('ltBody');
+  // Hiện loading nhỏ
+  const pullBtn = document.getElementById('ltPullBtn');
+  if (pullBtn) { pullBtn.disabled = true; pullBtn.textContent = '⟳ Đang tải...'; }
+  try {
+    const snap = await window._getDoc(_ltFirebaseRef());
+    if (!snap.exists() || !snap.data().groups?.length) {
+      showToast('error', '⚠ Chưa có bài tập trên cloud cho gói này');
+      if (pullBtn) { pullBtn.disabled = false; pullBtn.textContent = '⬇ Tải từ cloud'; }
+      return;
+    }
+    const data = snap.data();
+    // Lưu vào IDB
+    const packId = currentPack?.id || 'default';
+    await IDB.set('lt::' + packId, data).catch(() => {});
+    _ltGroups = data.groups;
+    _ltCurrentGroup = 0;
+    _ltCurrentEx = 0;
+    _ltScore = 0;
+    _ltTotal = 0;
+    _ltIsSaved = true;
+    showToast('success', '⬇ Đã tải bài tập từ cloud!');
+    _ltRenderGroupMenu();
+  } catch(e) {
+    showToast('error', '✕ Lỗi tải: ' + e.message);
+    if (pullBtn) { pullBtn.disabled = false; pullBtn.textContent = '⬇ Tải từ cloud'; }
   }
 }
 
@@ -3819,6 +3905,12 @@ Hãy:
    - "fill": điền từ vào chỗ trống (3-5 câu, mỗi câu bỏ 1 từ trong nhóm)
    - "order": sắp xếp các từ thành câu hoàn chỉnh (2-3 câu)
 
+QUY TẮC BẮT BUỘC cho bài "order":
+- Trường "words" phải chứa ĐÚNG các từ cấu thành câu trong "answer", không thêm không bớt
+- Ghép tất cả từ trong "words" lại (theo đúng thứ tự) phải ra đúng câu "answer"
+- Ví dụ đúng: words: ["The","cat","sat"] → answer: "The cat sat"
+- Ví dụ SAI: words: ["cat","sat"] nhưng answer: "The cat sat" (thiếu "The")
+
 Trả về JSON hợp lệ, không có gì khác ngoài JSON:
 {
   "groups": [
@@ -3838,7 +3930,7 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
           { "sentence": "câu với ___ thay từ cần điền", "answer": "từ cần điền", "hint": "gợi ý ngắn" }
         ],
         "order": [
-          { "words": ["từ1","từ2","từ3"], "answer": "câu hoàn chỉnh" }
+          { "words": ["The","cat","sat"], "answer": "The cat sat" }
         ]
       }
     }
@@ -3876,19 +3968,27 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
     const parsed = JSON.parse(clean);
     _ltGroups = parsed.groups || [];
     if (!_ltGroups.length) throw new Error('AI không trả về nhóm từ nào');
+
+    // ── Post-process: đảm bảo order.words khớp chính xác với answer ──
+    _ltGroups.forEach(g => {
+      (g.exercises?.order || []).forEach(item => {
+        if (!item.answer) return;
+        // Tách answer thành từng từ → đây mới là nguồn sự thật
+        const correctWords = item.answer.trim().split(/\s+/);
+        // Chỉ ghi đè nếu words bị thiếu hoặc thừa so với answer
+        const builtFromWords = (item.words || []).join(' ').toLowerCase().replace(/[.,!?]+$/,'').trim();
+        const builtFromAnswer = correctWords.join(' ').toLowerCase().replace(/[.,!?]+$/,'').trim();
+        if (builtFromWords !== builtFromAnswer) {
+          item.words = correctWords; // fix: lấy từ answer
+        }
+      });
+    });
+
     _ltCurrentGroup = 0;
     _ltCurrentEx = 0;
     _ltScore = 0;
     _ltTotal = 0;
-
-    // ── Lưu vào IDB để dùng lại lần sau ──
-    const cacheKey = 'lt::' + (currentPack?.id || 'default');
-    const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
-    IDB.set(cacheKey, {
-      groups: _ltGroups,
-      wordSnapshot,
-      savedAt: Date.now()
-    }).catch(() => {});
+    _ltIsSaved = false;
 
     _ltRenderGroupMenu();
   } catch(e) {
@@ -3917,10 +4017,19 @@ function _ltRenderGroupMenu() {
     </div>
   `).join('');
 
+  const saveBtn = _ltIsSaved
+    ? `<button class="lt-cloud-btn lt-cloud-saved" disabled>☁ Đã lưu lên cloud</button>`
+    : `<button class="lt-cloud-btn lt-cloud-save" id="ltSaveBtn" onclick="_ltSaveToFirebase()">☁ Lưu bài tập lên cloud</button>`;
+
   body.innerHTML = `
     <div class="lt-menu">
-      <div class="lt-menu-title">Chọn nhóm từ để luyện tập</div>
-      <div class="lt-menu-sub">AI đã phân ${_ltGroups.length} nhóm từ ${_ltWords.length} từ đang học</div>
+      <div class="lt-menu-toolbar">
+        <div>
+          <div class="lt-menu-title">Chọn nhóm từ để luyện tập</div>
+          <div class="lt-menu-sub">${_ltGroups.length} nhóm · ${_ltWords.length} từ đang học</div>
+        </div>
+        ${saveBtn}
+      </div>
       <div class="lt-group-list">${groupCards}</div>
     </div>
   `;
