@@ -3990,6 +3990,27 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
     _ltTotal = 0;
     _ltIsSaved = false;
 
+    // ── Tự động lưu Firebase + IDB ngay sau khi AI tạo xong ──
+    try {
+      const now = Date.now();
+      const packId = currentPack?.id || 'default';
+      const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
+      const payload = {
+        groups: _ltGroups,
+        wordSnapshot,
+        packId,
+        packName: currentPack?.name || '',
+        savedAt: now
+      };
+      await IDB.set('lt::' + packId, payload).catch(() => {});
+      if (isLoggedIn() && navigator.onLine) {
+        await window._setDoc(_ltFirebaseRef(), payload, { merge: false });
+      }
+      _ltIsSaved = true;
+    } catch(eSave) {
+      console.warn('[LT] Auto-save error:', eSave.message);
+    }
+
     _ltRenderGroupMenu();
   } catch(e) {
     document.getElementById('ltBody').innerHTML = `
@@ -4018,8 +4039,8 @@ function _ltRenderGroupMenu() {
   `).join('');
 
   const saveBtn = _ltIsSaved
-    ? `<button class="lt-cloud-btn lt-cloud-saved" disabled>☁ Đã lưu lên cloud</button>`
-    : `<button class="lt-cloud-btn lt-cloud-save" id="ltSaveBtn" onclick="_ltSaveToFirebase()">☁ Lưu bài tập lên cloud</button>`;
+    ? `<span class="lt-cloud-badge lt-cloud-saved">☁ Đã tự động lưu</span>`
+    : `<span class="lt-cloud-badge lt-cloud-saving">⟳ Đang lưu...</span>`;
 
   body.innerHTML = `
     <div class="lt-menu">
