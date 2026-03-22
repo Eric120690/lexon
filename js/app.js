@@ -3615,21 +3615,16 @@ if (!navigator.onLine) _showOfflineBanner(true);
 
 let _ltWords = [];       // từ đang học (không mastered)
 let _ltGroups = [];      // nhóm từ do AI tạo
-let _ltCurrentGroup = 0; // nhóm đang học
-let _ltExercises = [];   // bài tập của nhóm hiện tại
-let _ltCurrentEx = 0;    // bài tập hiện tại
+let _ltCurrentGroup = 0;
+let _ltExercises = [];
+let _ltCurrentEx = 0;
 let _ltScore = 0;
 let _ltTotal = 0;
+const LT_MAX_WORDS = 20;
 
 function openLuyenTap() {
-  // Lấy từ đang học (chưa thuộc, không ẩn)
   _ltWords = words.filter(w => !w.mastered && !w.hidden);
-  if (_ltWords.length < 3) {
-    showToast('error', '⚠ Cần ít nhất 3 từ chưa thuộc để luyện tập!');
-    return;
-  }
 
-  // Tạo overlay
   let overlay = document.getElementById('luyentapOverlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -3641,24 +3636,98 @@ function openLuyenTap() {
   overlay.innerHTML = `
     <div class="lt-modal">
       <div class="lt-modal-header">
-        <div class="lt-modal-title">⚡ Luyện Tập</div>
+        <div class="lt-modal-title">⚡ Luyện tập cùng AI</div>
         <button class="lt-close-btn" onclick="closeLuyenTap()">✕</button>
       </div>
-      <div class="lt-modal-body" id="ltBody">
-        <div class="lt-loading">
-          <div class="lt-loading-spinner"></div>
-          <div class="lt-loading-title">AI đang phân tích từ vựng...</div>
-          <div class="lt-loading-sub">${_ltWords.length} từ đang được nhóm và tạo bài tập</div>
-        </div>
-      </div>
+      <div class="lt-modal-body" id="ltBody"></div>
     </div>
   `;
 
   overlay.classList.add('show');
   document.body.style.overflow = 'hidden';
 
-  // Gọi AI
-  _ltGenerate();
+  _ltRenderWordPreview();
+}
+
+function _ltRenderWordPreview() {
+  const body = document.getElementById('ltBody');
+  const count = _ltWords.length;
+
+  if (count < 3) {
+    body.innerHTML = `
+      <div class="lt-error">
+        <div style="font-size:2rem">📭</div>
+        <div>Cần ít nhất 3 từ chưa thuộc để luyện tập!</div>
+        <button class="lt-retry-btn" onclick="closeLuyenTap()">Đóng</button>
+      </div>`;
+    return;
+  }
+
+  if (count > LT_MAX_WORDS) {
+    // Hiện thống kê + thông báo giới hạn
+    body.innerHTML = `
+      <div class="lt-preview">
+        <div class="lt-preview-stats">
+          <div class="lt-stat-box">
+            <div class="lt-stat-num" style="color:var(--neon-yellow)">${count}</div>
+            <div class="lt-stat-lbl">từ chưa thuộc</div>
+          </div>
+          <div class="lt-stat-box">
+            <div class="lt-stat-num" style="color:var(--neon-green)">${words.filter(w=>w.mastered).length}</div>
+            <div class="lt-stat-lbl">đã thuộc</div>
+          </div>
+          <div class="lt-stat-box">
+            <div class="lt-stat-num" style="color:var(--neon-cyan)">${words.filter(w=>w.hidden).length}</div>
+            <div class="lt-stat-lbl">đã ẩn</div>
+          </div>
+        </div>
+        <div class="lt-limit-warn">
+          <div class="lt-limit-icon">⚠</div>
+          <div class="lt-limit-title">Quá nhiều từ để luyện tập</div>
+          <div class="lt-limit-msg">
+            Bạn đang có <strong>${count} từ</strong> chưa thuộc.<br>
+            Tính năng này chỉ hoạt động với <strong>≤ ${LT_MAX_WORDS} từ</strong> để bài tập không quá dài và hiệu quả hơn.<br><br>
+            Hãy <strong>học thêm vài từ</strong> trong flashcard hoặc <strong>ẩn bớt</strong> những từ chưa muốn học trước.
+          </div>
+        </div>
+        <button class="lt-retry-btn" style="width:100%;padding:12px;margin-top:4px" onclick="closeLuyenTap()">← Quay lại flashcard</button>
+      </div>`;
+    return;
+  }
+
+  // ≤ 20 từ → hiện danh sách + nút tạo
+  const wordChips = _ltWords.map(w => `
+    <div class="lt-preview-word-row">
+      <span class="lt-preview-word">${h(w.word)}</span>
+      <span class="lt-preview-meaning">${h(w.meaning)}</span>
+    </div>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="lt-preview">
+      <div class="lt-preview-stats">
+        <div class="lt-stat-box">
+          <div class="lt-stat-num" style="color:var(--neon-cyan)">${count}</div>
+          <div class="lt-stat-lbl">từ sẽ luyện</div>
+        </div>
+        <div class="lt-stat-box">
+          <div class="lt-stat-num" style="color:var(--neon-purple)">4</div>
+          <div class="lt-stat-lbl">dạng bài tập</div>
+        </div>
+        <div class="lt-stat-box">
+          <div class="lt-stat-num" style="color:var(--neon-green)">${Math.min(4, Math.ceil(count/5))}</div>
+          <div class="lt-stat-lbl">nhóm từ</div>
+        </div>
+      </div>
+
+      <div class="lt-preview-list-label">Danh sách từ sẽ luyện tập</div>
+      <div class="lt-preview-word-list">${wordChips}</div>
+
+      <button class="lt-start-ex-btn" style="margin-top:16px" onclick="_ltGenerate()">
+        ✦ Tạo bài tập ngay →
+      </button>
+    </div>
+  `;
 }
 
 function closeLuyenTap() {
@@ -3681,6 +3750,13 @@ async function _ltGenerate() {
     return;
   }
 
+  // Hiện loading
+  document.getElementById('ltBody').innerHTML = `
+    <div class="lt-loading">
+      <div class="lt-loading-spinner"></div>
+      <div class="lt-loading-title">AI đang tạo bài tập...</div>
+      <div class="lt-loading-sub">Đang phân nhóm ${_ltWords.length} từ và viết đoạn văn</div>
+    </div>`;
   const wordList = _ltWords.slice(0, 30).map(w =>
     `${w.word}|${w.meaning}|${w.type||''}|${w.level||''}`
   ).join('\n');
