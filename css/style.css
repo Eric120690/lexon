@@ -2428,3 +2428,106 @@
     flex-direction: column;
     gap: 0;
   }
+
+  /* ── LUYỆN TẬP: Preview screen ── */
+  .lt-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .lt-preview-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .lt-stat-box {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 12px 8px;
+    text-align: center;
+  }
+  .lt-stat-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .lt-stat-lbl {
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* Limit warning */
+  .lt-limit-warn {
+    background: rgba(255,140,0,0.07);
+    border: 1px solid rgba(255,140,0,0.25);
+    border-radius: 14px;
+    padding: 18px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .lt-limit-icon { font-size: 2rem; }
+  .lt-limit-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: rgba(255,180,0,0.9);
+  }
+  .lt-limit-msg {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.5);
+    line-height: 1.7;
+  }
+  .lt-limit-msg strong { color: rgba(255,255,255,0.85); }
+
+  /* Word list preview */
+  .lt-preview-list-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
+    font-family: 'Space Mono', monospace;
+  }
+  .lt-preview-word-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .lt-preview-word-list::-webkit-scrollbar { width: 3px; }
+  .lt-preview-word-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+  .lt-preview-word-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+  .lt-preview-word-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .lt-preview-word {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--neon-cyan);
+    flex-shrink: 0;
+    min-width: 80px;
+  }
+  .lt-preview-meaning {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.45);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
