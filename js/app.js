@@ -1082,15 +1082,26 @@ function renderFlashcard() {
         </div>
       </div>
     </div>
-    <div class="action-row">
-      <button class="btn btn-flip"     onclick="flipCard()">↻ Lật Thẻ</button>
-      <button class="btn btn-skip"     onclick="skipWord()">→ Bỏ Qua</button>
+    <div class="action-row-v2">
+      <button class="btn-nav-arrow btn-nav-prev" onclick="prevCard()" ${(!loopSize && currentIndex===0)?'disabled':''} title="Quay lại (←)">
+        <span class="nav-arrow-icon">←</span>
+        <span class="nav-arrow-label">Lật thẻ</span>
+      </button>
       <button class="btn btn-mastered" onclick="markMastered()">✓ Đã Thuộc!</button>
+      <button class="btn-nav-arrow btn-nav-next" onclick="skipWord()" title="Bỏ qua (→)">
+        <span class="nav-arrow-icon">→</span>
+        <span class="nav-arrow-label">Bỏ qua</span>
+      </button>
     </div>
-    <div class="arrow-nav">
-      <button class="btn-arrow" onclick="prevCard()" ${(!loopSize && currentIndex===0)?'disabled':''} title="Quay lại (←)">←</button>
+    <button class="btn-luyen-tap" onclick="openLuyenTap()">
+      <span class="lt-icon">⚡</span>
+      <div>
+        <span class="lt-label">Luyện Tập</span>
+        <span class="lt-sub">AI tạo bài tập từ các từ đang học</span>
+      </div>
+    </button>
+    <div class="arrow-nav-hint-row">
       <span class="arrow-nav-hint">Phím ← → &nbsp;·&nbsp; Vuốt trái/phải &nbsp;·&nbsp; Space lật</span>
-      <button class="btn-arrow" onclick="skipWord()" title="Tiếp theo (→)">→</button>
     </div>
   `;
 
@@ -3588,3 +3599,561 @@ function _showOfflineBanner(show) {
 window.addEventListener('online',  () => _showOfflineBanner(false));
 window.addEventListener('offline', () => _showOfflineBanner(true));
 if (!navigator.onLine) _showOfflineBanner(true);
+
+// ============================================================
+//  ⚡ LUYỆN TẬP — AI-powered practice session
+// ============================================================
+
+let _ltWords = [];       // từ đang học (không mastered)
+let _ltGroups = [];      // nhóm từ do AI tạo
+let _ltCurrentGroup = 0; // nhóm đang học
+let _ltExercises = [];   // bài tập của nhóm hiện tại
+let _ltCurrentEx = 0;    // bài tập hiện tại
+let _ltScore = 0;
+let _ltTotal = 0;
+
+function openLuyenTap() {
+  // Lấy từ đang học (chưa thuộc, không ẩn)
+  _ltWords = words.filter(w => !w.mastered && !w.hidden);
+  if (_ltWords.length < 3) {
+    showToast('error', '⚠ Cần ít nhất 3 từ chưa thuộc để luyện tập!');
+    return;
+  }
+
+  // Tạo overlay
+  let overlay = document.getElementById('luyentapOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'luyentapOverlay';
+    overlay.className = 'lt-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="lt-modal">
+      <div class="lt-modal-header">
+        <div class="lt-modal-title">⚡ Luyện Tập</div>
+        <button class="lt-close-btn" onclick="closeLuyenTap()">✕</button>
+      </div>
+      <div class="lt-modal-body" id="ltBody">
+        <div class="lt-loading">
+          <div class="lt-loading-spinner"></div>
+          <div class="lt-loading-title">AI đang phân tích từ vựng...</div>
+          <div class="lt-loading-sub">${_ltWords.length} từ đang được nhóm và tạo bài tập</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  overlay.classList.add('show');
+  document.body.style.overflow = 'hidden';
+
+  // Gọi AI
+  _ltGenerate();
+}
+
+function closeLuyenTap() {
+  const overlay = document.getElementById('luyentapOverlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+}
+
+async function _ltGenerate() {
+  const wordList = _ltWords.slice(0, 30).map(w =>
+    `${w.word}|${w.meaning}|${w.type||''}|${w.level||''}`
+  ).join('\n');
+
+  const prompt = `Bạn là giáo viên tiếng Anh. Tôi có danh sách từ vựng sau (định dạng: từ|nghĩa|loại từ|level):
+
+${wordList}
+
+Hãy:
+1. Phân nhóm các từ thành 2-4 nhóm theo chủ đề hoặc ngữ nghĩa liên quan (mỗi nhóm 3-8 từ)
+2. Viết 1 đoạn văn ngắn (4-6 câu) bằng tiếng Anh tích hợp tự nhiên các từ trong nhóm
+3. Tạo bài tập cho mỗi nhóm gồm 4 loại:
+   - "mcq": 4-6 câu trắc nghiệm về nghĩa hoặc cách dùng (4 đáp án, 1 đúng)
+   - "match": nối từ với nghĩa (4-6 cặp)
+   - "fill": điền từ vào chỗ trống (3-5 câu, mỗi câu bỏ 1 từ trong nhóm)
+   - "order": sắp xếp các từ thành câu hoàn chỉnh (2-3 câu)
+
+Trả về JSON hợp lệ, không có gì khác ngoài JSON:
+{
+  "groups": [
+    {
+      "theme": "tên chủ đề",
+      "words": ["word1", "word2", ...],
+      "passage": "đoạn văn tiếng Anh",
+      "passage_vi": "dịch nghĩa tiếng Việt ngắn gọn",
+      "exercises": {
+        "mcq": [
+          { "q": "câu hỏi", "opts": ["A","B","C","D"], "ans": 0 }
+        ],
+        "match": [
+          { "word": "từ", "meaning": "nghĩa tiếng Việt" }
+        ],
+        "fill": [
+          { "sentence": "câu với ___ thay từ cần điền", "answer": "từ cần điền", "hint": "gợi ý ngắn" }
+        ],
+        "order": [
+          { "words": ["từ1","từ2","từ3",...], "answer": "câu hoàn chỉnh" }
+        ]
+      }
+    }
+  ]
+}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    _ltGroups = parsed.groups || [];
+    _ltCurrentGroup = 0;
+    _ltCurrentEx = 0;
+    _ltScore = 0;
+    _ltTotal = 0;
+    _ltRenderGroupMenu();
+  } catch(e) {
+    document.getElementById('ltBody').innerHTML = `
+      <div class="lt-error">
+        <div style="font-size:2rem">⚠</div>
+        <div>Không tạo được bài tập. Vui lòng thử lại.</div>
+        <button class="lt-retry-btn" onclick="_ltGenerate()">↺ Thử lại</button>
+      </div>`;
+  }
+}
+
+function _ltRenderGroupMenu() {
+  const body = document.getElementById('ltBody');
+  if (!body) return;
+
+  const groupCards = _ltGroups.map((g, i) => `
+    <div class="lt-group-card" onclick="_ltStartGroup(${i})">
+      <div class="lt-group-icon">${['📘','📗','📙','📕'][i % 4]}</div>
+      <div class="lt-group-info">
+        <div class="lt-group-theme">${g.theme}</div>
+        <div class="lt-group-words">${g.words.slice(0,5).join(', ')}${g.words.length>5?'...':''}</div>
+        <div class="lt-group-meta">${g.words.length} từ · 4 dạng bài tập</div>
+      </div>
+      <div class="lt-group-arrow">→</div>
+    </div>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="lt-menu">
+      <div class="lt-menu-title">Chọn nhóm từ để luyện tập</div>
+      <div class="lt-menu-sub">AI đã phân ${_ltGroups.length} nhóm từ ${_ltWords.length} từ đang học</div>
+      <div class="lt-group-list">${groupCards}</div>
+    </div>
+  `;
+}
+
+function _ltStartGroup(groupIdx) {
+  _ltCurrentGroup = groupIdx;
+  _ltCurrentEx = 0;
+  _ltScore = 0;
+  _ltTotal = 0;
+  _ltFillDone = 0;
+  _ltFillCorrect = 0;
+  const g = _ltGroups[groupIdx];
+  const body = document.getElementById('ltBody');
+
+  // Hiện đoạn văn trước
+  body.innerHTML = `
+    <div class="lt-passage-screen">
+      <div class="lt-passage-header">
+        <button class="lt-back-btn" onclick="_ltRenderGroupMenu()">← Quay lại</button>
+        <div class="lt-passage-theme">${g.theme}</div>
+      </div>
+      <div class="lt-passage-words">
+        ${g.words.map(w => {
+          const wd = _ltWords.find(x => x.word === w);
+          return `<span class="lt-word-chip">${w}${wd?.phonetics?` <em>/${wd.phonetics}/</em>`:''}</span>`;
+        }).join('')}
+      </div>
+      <div class="lt-passage-box">
+        <div class="lt-passage-label">📖 Đoạn văn</div>
+        <div class="lt-passage-text">${_ltHighlight(g.passage, g.words)}</div>
+        <div class="lt-passage-vi">${g.passage_vi}</div>
+      </div>
+      <button class="lt-start-ex-btn" onclick="_ltRenderExercise(${groupIdx}, 0)">
+        Bắt đầu luyện tập →
+      </button>
+    </div>
+  `;
+}
+
+function _ltHighlight(text, words) {
+  let result = text;
+  words.forEach(w => {
+    const re = new RegExp('\\b(' + w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')\\b', 'gi');
+    result = result.replace(re, '<mark class="lt-highlight">$1</mark>');
+  });
+  return result;
+}
+
+// Thứ tự bài tập
+const _ltExOrder = ['mcq', 'match', 'fill', 'order'];
+const _ltExNames = { mcq: '📝 Trắc Nghiệm', match: '🔗 Nối Từ', fill: '✏️ Điền Từ', order: '🔀 Sắp Xếp Câu' };
+
+function _ltRenderExercise(groupIdx, exIdx) {
+  // Hết bài tập → kết quả
+  if (exIdx === -1 || exIdx >= _ltExOrder.length) {
+    _ltRenderGroupResult(groupIdx);
+    return;
+  }
+
+  _ltCurrentGroup = groupIdx;
+  _ltCurrentEx = exIdx;
+  const g = _ltGroups[groupIdx];
+  const exType = _ltExOrder[exIdx];
+  const ex = g.exercises[exType];
+  const body = document.getElementById('ltBody');
+
+  if (!ex || !ex.length) {
+    // Bỏ qua loại bài này nếu rỗng
+    _ltRenderExercise(groupIdx, exIdx + 1);
+    return;
+  }
+
+  const progress = `${exIdx + 1} / ${_ltExOrder.length}`;
+  let content = '';
+
+  if (exType === 'mcq') content = _ltBuildMCQ(ex, groupIdx, exIdx);
+  else if (exType === 'match') content = _ltBuildMatch(ex, groupIdx, exIdx);
+  else if (exType === 'fill') content = _ltBuildFill(ex, groupIdx, exIdx);
+  else if (exType === 'order') content = _ltBuildOrder(ex, groupIdx, exIdx);
+
+  body.innerHTML = `
+    <div class="lt-exercise-screen">
+      <div class="lt-ex-header">
+        <button class="lt-back-btn" onclick="_ltStartGroup(${groupIdx})">← Đoạn văn</button>
+        <div class="lt-ex-progress-wrap">
+          <div class="lt-ex-type-label">${_ltExNames[exType]}</div>
+          <div class="lt-ex-progress">${progress}</div>
+        </div>
+      </div>
+      <div class="lt-ex-progress-bar">
+        <div class="lt-ex-progress-fill" style="width:${(exIdx/(_ltExOrder.length))*100}%"></div>
+      </div>
+      <div id="ltExContent">${content}</div>
+    </div>
+  `;
+
+  // Init sau khi render
+  if (exType === 'match') _ltInitMatch(ex);
+  if (exType === 'order') _ltInitOrder(ex);
+  if (exType === 'mcq') setTimeout(() => _ltInitMCQ(ex, groupIdx, exIdx), 50);
+}
+
+// ── MCQ ──
+function _ltBuildMCQ(questions, gi, ei) {
+  return `
+    <div class="lt-mcq">
+      <div class="lt-mcq-count" id="ltMcqCount">Câu 1 / ${questions.length}</div>
+      <div id="ltMcqContainer"></div>
+      <div id="ltMcqScore" class="lt-score-row" style="display:none"></div>
+      <button class="lt-next-ex-btn" id="ltMcqNext" style="display:none"
+        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
+        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
+      </button>
+    </div>
+  `;
+}
+
+// Render MCQ sau khi DOM ready
+function _ltInitMCQ(questions, gi, ei) {
+  let current = 0, correct = 0;
+
+  function showQ(idx) {
+    const q = questions[idx];
+    const container = document.getElementById('ltMcqContainer');
+    document.getElementById('ltMcqCount').textContent = `Câu ${idx+1} / ${questions.length}`;
+    container.innerHTML = `
+      <div class="lt-mcq-question">${q.q}</div>
+      <div class="lt-mcq-opts">
+        ${q.opts.map((opt, i) => `
+          <button class="lt-mcq-opt" onclick="_ltMcqAnswer(this,${i},${q.ans},${idx},${questions.length})" data-idx="${i}">
+            <span class="lt-opt-letter">${['A','B','C','D'][i]}</span>
+            <span>${opt}</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
+  }
+  showQ(0);
+
+  window._ltMcqState = { current:0, correct:0, questions, gi, ei, showQ };
+}
+
+window._ltMcqAnswer = function(btn, chosen, correct, qIdx, total) {
+  const state = window._ltMcqState;
+  if (!state) return;
+  const opts = document.querySelectorAll('.lt-mcq-opt');
+  opts.forEach(b => b.disabled = true);
+  opts[correct].classList.add('correct');
+  if (chosen !== correct) { btn.classList.add('wrong'); }
+  else { state.correct++; }
+
+  setTimeout(() => {
+    if (qIdx + 1 < total) {
+      state.current++;
+      state.showQ(state.current);
+    } else {
+      // Hiện kết quả MCQ
+      document.getElementById('ltMcqScore').style.display = 'flex';
+      document.getElementById('ltMcqScore').innerHTML = `
+        <span>Kết quả:</span>
+        <strong style="color:var(--neon-green)">${state.correct}/${total}</strong>
+        <span>câu đúng</span>`;
+      document.getElementById('ltMcqNext').style.display = 'block';
+      _ltScore += state.correct;
+      _ltTotal += total;
+    }
+  }, 900);
+};
+
+// ── MATCH ──
+function _ltBuildMatch(pairs, gi, ei) {
+  const shuffledMeanings = [...pairs].sort(() => Math.random() - 0.5);
+  return `
+    <div class="lt-match">
+      <div class="lt-match-instruction">Nhấp vào một từ, rồi nhấp vào nghĩa tương ứng</div>
+      <div class="lt-match-area">
+        <div class="lt-match-col" id="ltMatchWords">
+          ${pairs.map((p,i) => `<div class="lt-match-item lt-match-word" data-word="${p.word}" data-idx="${i}" onclick="_ltMatchSelect(this,'word')">${p.word}</div>`).join('')}
+        </div>
+        <div class="lt-match-col" id="ltMatchMeanings">
+          ${shuffledMeanings.map((p,i) => `<div class="lt-match-item lt-match-meaning" data-word="${p.word}" onclick="_ltMatchSelect(this,'meaning')">${p.meaning}</div>`).join('')}
+        </div>
+      </div>
+      <div id="ltMatchResult" class="lt-score-row" style="display:none"></div>
+      <button class="lt-next-ex-btn" id="ltMatchNext" style="display:none"
+        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
+        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
+      </button>
+    </div>
+  `;
+}
+
+function _ltInitMatch(pairs) {
+  window._ltMatchState = { selected: null, selectedType: null, correct: 0, done: 0, total: pairs.length };
+}
+
+window._ltMatchSelect = function(el, type) {
+  const state = window._ltMatchState;
+  if (!state || el.classList.contains('matched') || el.classList.contains('wrong-match')) return;
+
+  if (!state.selected) {
+    document.querySelectorAll('.lt-match-item').forEach(x => x.classList.remove('selected'));
+    el.classList.add('selected');
+    state.selected = el;
+    state.selectedType = type;
+  } else {
+    if (state.selectedType === type) {
+      // Chọn cùng loại → đổi selection
+      document.querySelectorAll('.lt-match-item').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      state.selected = el;
+      state.selectedType = type;
+      return;
+    }
+
+    // Xác định wordEl và meaningEl
+    const wordEl    = type === 'word'    ? el : state.selected;
+    const meaningEl = type === 'meaning' ? el : state.selected;
+
+    // Dùng data-word để tránh lỗi với textContent
+    const wordKey = wordEl.dataset.word;
+    // meaning item có data-word = từ tương ứng
+    const isCorrect = meaningEl.dataset.word === wordKey;
+
+    wordEl.classList.remove('selected');
+    meaningEl.classList.remove('selected');
+    state.selected = null;
+
+    if (isCorrect) {
+      wordEl.classList.add('matched');
+      meaningEl.classList.add('matched');
+      state.correct++;
+    } else {
+      wordEl.classList.add('wrong-match');
+      meaningEl.classList.add('wrong-match');
+      setTimeout(() => {
+        wordEl.classList.remove('wrong-match');
+        meaningEl.classList.remove('wrong-match');
+      }, 700);
+    }
+
+    state.done++;
+
+    if (state.correct === state.total) {
+      document.getElementById('ltMatchResult').style.display = 'flex';
+      document.getElementById('ltMatchResult').innerHTML =
+        `<span>Nối đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${state.total}</strong>`;
+      document.getElementById('ltMatchNext').style.display = 'block';
+      _ltScore += state.correct;
+      _ltTotal += state.total;
+    }
+  }
+};
+
+// ── FILL IN THE BLANK ──
+function _ltBuildFill(items, gi, ei) {
+  return `
+    <div class="lt-fill">
+      <div class="lt-fill-instruction">Điền từ thích hợp vào chỗ trống</div>
+      ${items.map((item, i) => `
+        <div class="lt-fill-item" id="ltFillItem${i}">
+          <div class="lt-fill-sentence">${item.sentence.replace('___', `<input class="lt-fill-input" id="ltFillInput${i}" placeholder="..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`)}</div>
+          <div class="lt-fill-hint">💡 ${item.hint}</div>
+          <div class="lt-fill-feedback" id="ltFillFb${i}"></div>
+          <button class="lt-fill-check" onclick="_ltCheckFill(${i},'${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">Kiểm tra</button>
+        </div>
+      `).join('')}
+      <div id="ltFillScore" class="lt-score-row" style="display:none"></div>
+      <button class="lt-next-ex-btn" id="ltFillNext" style="display:none"
+        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
+        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
+      </button>
+    </div>
+  `;
+}
+
+let _ltFillDone = 0, _ltFillCorrect = 0;
+window._ltCheckFill = function(idx, answer, total, gi, ei) {
+  const input = document.getElementById(`ltFillInput${idx}`);
+  const fb = document.getElementById(`ltFillFb${idx}`);
+  const btn = document.querySelector(`#ltFillItem${idx} .lt-fill-check`);
+  if (!input || btn.disabled) return;
+
+  const val = input.value.trim().toLowerCase();
+  const correct = answer.toLowerCase();
+  btn.disabled = true;
+  input.disabled = true;
+
+  if (val === correct) {
+    fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
+    input.classList.add('fill-correct');
+    _ltFillCorrect++;
+  } else {
+    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Đáp án: <strong>${answer}</strong></span>`;
+    input.classList.add('fill-wrong');
+  }
+
+  _ltFillDone++;
+  if (_ltFillDone >= total) {
+    document.getElementById('ltFillScore').style.display = 'flex';
+    document.getElementById('ltFillScore').innerHTML =
+      `<span>Điền đúng:</span><strong style="color:var(--neon-green)">${_ltFillCorrect}/${total}</strong>`;
+    document.getElementById('ltFillNext').style.display = 'block';
+    _ltScore += _ltFillCorrect;
+    _ltTotal += total;
+    _ltFillDone = 0; _ltFillCorrect = 0;
+  }
+};
+
+// ── ORDER WORDS ──
+function _ltBuildOrder(items, gi, ei) {
+  return `
+    <div class="lt-order">
+      <div class="lt-order-instruction">Sắp xếp các từ thành câu hoàn chỉnh</div>
+      ${items.map((item, i) => {
+        const shuffled = [...item.words].sort(() => Math.random() - 0.5);
+        return `
+          <div class="lt-order-item" id="ltOrderItem${i}">
+            <div class="lt-order-drop" id="ltOrderDrop${i}" data-answer="${item.answer}"></div>
+            <div class="lt-order-pool" id="ltOrderPool${i}">
+              ${shuffled.map(w => `<button class="lt-order-word" onclick="_ltOrderClick(this,${i},'${w.replace(/'/g,"\\'")}','${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">${w}</button>`).join('')}
+            </div>
+            <div class="lt-order-feedback" id="ltOrderFb${i}"></div>
+          </div>`;
+      }).join('')}
+      <div id="ltOrderScore" class="lt-score-row" style="display:none"></div>
+      <button class="lt-next-ex-btn" id="ltOrderNext" style="display:none"
+        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
+        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
+      </button>
+    </div>
+  `;
+}
+
+function _ltInitOrder(items) {
+  window._ltOrderState = { done: 0, correct: 0, total: items.length };
+}
+
+window._ltOrderClick = function(btn, itemIdx, word, answer, total, gi, ei) {
+  if (btn.classList.contains('used')) return;
+  btn.classList.add('used');
+  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
+  const chip = document.createElement('span');
+  chip.className = 'lt-order-chip';
+  chip.textContent = word;
+  chip.onclick = () => {
+    chip.remove();
+    btn.classList.remove('used');
+  };
+  drop.appendChild(chip);
+
+  // Kiểm tra khi đủ từ
+  const pool = document.getElementById(`ltOrderPool${itemIdx}`);
+  const allWords = pool.querySelectorAll('.lt-order-word');
+  const usedCount = pool.querySelectorAll('.used').length;
+  if (usedCount === allWords.length) {
+    // Disable toàn bộ buttons + chips để không click lại được
+    allWords.forEach(b => { b.disabled = true; b.style.pointerEvents = 'none'; });
+    drop.querySelectorAll('.lt-order-chip').forEach(c => { c.style.pointerEvents = 'none'; c.style.cursor = 'default'; });
+
+    const built = Array.from(drop.querySelectorAll('.lt-order-chip')).map(c=>c.textContent).join(' ');
+    const fb = document.getElementById(`ltOrderFb${itemIdx}`);
+    const state = window._ltOrderState;
+    if (built.toLowerCase().trim() === answer.toLowerCase().trim()) {
+      fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
+      state.correct++;
+    } else {
+      fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Câu đúng: <em>${answer}</em></span>`;
+    }
+    state.done++;
+    if (state.done >= total) {
+      document.getElementById('ltOrderScore').style.display = 'flex';
+      document.getElementById('ltOrderScore').innerHTML =
+        `<span>Đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${total}</strong>`;
+      document.getElementById('ltOrderNext').style.display = 'block';
+      _ltScore += state.correct;
+      _ltTotal += total;
+    }
+  }
+};
+
+// ── Kết quả nhóm ──
+function _ltRenderGroupResult(groupIdx) {
+  const body = document.getElementById('ltBody');
+  const pct = _ltTotal ? Math.round(_ltScore / _ltTotal * 100) : 0;
+  const emoji = pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪';
+  body.innerHTML = `
+    <div class="lt-result">
+      <div class="lt-result-icon">${emoji}</div>
+      <div class="lt-result-title">Hoàn thành nhóm!</div>
+      <div class="lt-result-score">${_ltScore}<span>/${_ltTotal}</span></div>
+      <div class="lt-result-pct">${pct}% chính xác</div>
+      <div class="lt-result-actions">
+        <button class="lt-result-btn" onclick="_ltRenderGroupMenu()">← Chọn nhóm khác</button>
+        <button class="lt-result-btn primary" onclick="closeLuyenTap()">✓ Xong</button>
+      </div>
+    </div>
+  `;
+}
+
+
+
