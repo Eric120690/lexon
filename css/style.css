@@ -542,7 +542,7 @@
     transform:rotateY(180deg);
   }
   .fc-hint { font-size:0.65rem; letter-spacing:0.25em; text-transform:uppercase; margin-bottom:14px; opacity:0.33; font-family:'Inter',sans-serif; }
-  .fc-word { font-family:'Plus Jakarta Sans',sans-serif; font-size:2.6rem; font-weight:800; letter-spacing:0.01em; line-height:1.15; margin-bottom:6px; }
+  .fc-word { font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(1.1rem, 5.5vw, 2.6rem); font-weight:800; letter-spacing:0.01em; line-height:1.2; margin-bottom:6px; word-break:break-word; overflow-wrap:break-word; }
   .fc-front .fc-word {
     background:linear-gradient(135deg,#fff, rgba(0,245,255,0.8));
     -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
@@ -1951,24 +1951,27 @@
      ============================================================ */
   .action-row-v2 {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
     margin: 18px 0 10px;
+  }
+  .action-row-v2 > * {
+    flex: 1;
   }
   
   .btn-nav-arrow {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 3px;
     background: var(--glass);
     border: 1px solid var(--glass-border);
     border-radius: 16px;
-    padding: 12px 18px;
+    padding: 12px 8px;
     cursor: pointer;
     transition: all 0.18s;
-    min-width: 80px;
     color: rgba(255,255,255,0.6);
   }
   .btn-nav-arrow:hover:not(:disabled) {
@@ -2006,7 +2009,8 @@
   .btn-luyen-tap {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: center;
+    gap: 10px;
     width: 100%;
     padding: 14px 20px;
     margin: 4px 0 10px;
@@ -2015,7 +2019,7 @@
     border-radius: 16px;
     cursor: pointer;
     transition: all 0.2s;
-    text-align: left;
+    text-align: center;
     color: #fff;
   }
   .btn-luyen-tap:hover {
@@ -2025,23 +2029,17 @@
     box-shadow: 0 6px 24px rgba(191,0,255,0.15);
   }
   .lt-icon {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
     flex-shrink: 0;
   }
   .lt-label {
     font-family: 'Syne', sans-serif;
     font-size: 0.95rem;
     font-weight: 800;
-    letter-spacing: 0.04em;
-    color: rgba(191,0,255,0.9);
+    letter-spacing: 0.05em;
+    color: rgba(191,0,255,0.95);
   }
-  .lt-sub {
-    font-size: 0.65rem;
-    color: rgba(255,255,255,0.35);
-    margin-top: 1px;
-    display: block;
-    font-family: 'Space Mono', monospace;
-  }
+  .lt-sub { display: none; }
   .lt-label, .lt-sub { display: block; }
   .btn-luyen-tap > div { display: flex; flex-direction: column; gap: 2px; }
   
