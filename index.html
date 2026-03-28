@@ -437,7 +437,6 @@ serendipity - tình cờ may mắn - (n) - It was pure serendipity."></textarea>
         <div class="section-label" style="margin-bottom:0">Danh sách từ vựng</div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <button class="btn-copy-words" id="btnCopyWords" onclick="copyLearningWords()">⎘ Copy từ đang học</button>
-          <button class="btn-scan-words" id="btnScanWords" onclick="openWordScan()">🔍 Rà soát từ</button>
           <button class="btn-ai-writer" id="btnAiWriter" onclick="openAiWriter()">✦ AI Tạo Bài Viết</button>
           <div class="word-count">
             <strong id="totalCount">0</strong> từ &nbsp;|&nbsp;
@@ -655,32 +654,6 @@ serendipity - tình cờ may mắn - (n) - It was pure serendipity."></textarea>
     </div>
   </div>
 
-
-<!-- ===== WORD SCAN OVERLAY ===== -->
-<div class="wordscan-overlay" id="wordScanOverlay">
-  <div class="wordscan-modal">
-    <div class="wordscan-header">
-      <div class="wordscan-title-wrap">
-        <div class="wordscan-title">🔍 Rà soát từ</div>
-        <div class="wordscan-desc">Nhấn vào từ để <strong>ẩn</strong> — ẩn rồi nhấn lại để <strong>hiện</strong></div>
-      </div>
-      <button class="wordscan-close" onclick="closeWordScan()">✕</button>
-    </div>
-    <div class="wordscan-progress-bar-wrap">
-      <div class="wordscan-progress-bar" id="wordScanProgressBar"></div>
-    </div>
-    <div class="wordscan-pager" id="wordScanPager"></div>
-    <div class="wordscan-grid" id="wordScanGrid"></div>
-    <div class="wordscan-footer">
-      <div class="wordscan-nav">
-        <button class="wordscan-nav-btn" id="wordScanPrev" onclick="wordScanPrev()">← Trước</button>
-        <div class="wordscan-page-info" id="wordScanPageInfo"></div>
-        <button class="wordscan-nav-btn" id="wordScanNext" onclick="wordScanNext()">Tiếp →</button>
-      </div>
-      <button class="wordscan-save-btn" onclick="saveWordScan()">✓ Lưu & đóng</button>
-    </div>
-  </div>
-</div>
 
 <!-- App logic -->
 <script src="js/app.js"></script>
