@@ -2620,22 +2620,18 @@
    🔍 WORD SCAN OVERLAY
    ============================================================ */
 .wordscan-overlay {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 10000;
   background: rgba(0,0,0,0.85);
   backdrop-filter: blur(10px);
-  display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
 }
 .wordscan-overlay.show {
-  opacity: 1;
-  pointer-events: all;
+  display: flex;
 }
 .wordscan-modal {
   background: #0d0d1f;
