@@ -217,27 +217,65 @@ async function openRootWord(wordObj) {
 }
 
 async function fetchRootWord(word, apiKey) {
-  const prompt = `Gốc của từ: ${word}. Chỉ trả về JSON, không giải thích thêm: {"cauTao":"...","lichSu":"...","meoNhoR":"..."}`;
-  const res = await fetch(`${MAVIS_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(()=>'');
-    if (res.status === 401) throw new Error('API Key không hợp lệ (401)');
-    if (res.status === 402) throw new Error('Hết quota MAVIS (402)');
-    throw new Error(`Lỗi server ${res.status}`);
+  const prompt = `
+Gốc của từ: ${word}.
+Trả về JSON hợp lệ duy nhất, không markdown, không giải thích:
+{"cauTao":"...","lichSu":"...","meoNhoR":"..."}
+`;
+
+  async function callAPI() {
+    const res = await fetch(`https://llm.chiasegpu.vn/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4.6',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 400
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(()=>'');
+      if (res.status === 401) throw new Error('API Key không hợp lệ (401)');
+      if (res.status === 402) throw new Error('Hết quota (402)');
+      throw new Error(`Lỗi server ${res.status}: ${errText}`);
+    }
+
+    return res.json();
   }
-  const data = await res.json();
-  let rawText = '';
-  if (typeof data.content === 'string') rawText = data.content;
-  else if (Array.isArray(data.content)) rawText = data.content.map(b => b.text || '').join('');
-  else if (data.choices) rawText = data.choices?.[0]?.message?.content || '';
-  const clean = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+  let data;
+  try {
+    data = await callAPI();
+  } catch (e) {
+    console.warn('Retry...');
+    data = await callAPI();
+  }
+
+  let rawText = data?.choices?.[0]?.message?.content || '';
+
+  const clean = rawText
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
-  try { return JSON.parse(jsonMatch ? jsonMatch[0] : clean); }
-  catch(e) { return { cauTao: '', lichSu: rawText, meoNhoR: '' }; }
+
+  try {
+    return JSON.parse(jsonMatch ? jsonMatch[0] : clean);
+  } catch (e) {
+    return {
+      cauTao: '',
+      lichSu: rawText,
+      meoNhoR: ''
+    };
+  }
+}
 }
 
 function renderRootWordResult(container, data) {
