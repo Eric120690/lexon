@@ -1412,6 +1412,29 @@ async function manualPush() {
           { merge: true });
       }
     }
+    // 4. XP & Streak
+    try {
+      const xpRef = window._doc(window._db, 'users', getUID(), 'xp', 'data');
+      const xpSnap = await window._getDoc(xpRef).catch(() => null);
+      if (xpSnap && xpSnap.exists()) {
+        await window._setDoc(xpRef, { ...xpSnap.data(), updatedAt: now }, { merge: true });
+      }
+    } catch(e) { console.warn('Push XP error:', e); }
+
+    // 5. Thống kê học (totalStudyMinutes, totalWordsSeen, studyHistory)
+    try {
+      const snap = await window._getDoc(userDoc());
+      if (snap.exists()) {
+        const d = snap.data();
+        await window._setDoc(userDoc(), {
+          totalStudyMinutes: d.totalStudyMinutes || 0,
+          totalWordsSeen: d.totalWordsSeen || 0,
+          studyHistory: d.studyHistory || {},
+          updatedAt: now
+        }, { merge: true });
+      }
+    } catch(e) { console.warn('Push stats error:', e); }
+
     showToast('success', '☁ Đã tải lên cloud thành công!');
   } catch(e) {
     showToast('error', '✕ Lỗi: ' + e.message);
@@ -1478,7 +1501,32 @@ async function manualPull() {
       }
     }
 
+    // 5. XP & Streak — tải về và cập nhật session
+    try {
+      const xpRef = window._doc(window._db, 'users', getUID(), 'xp', 'data');
+      const xpSnap = await window._getDoc(xpRef).catch(() => null);
+      if (xpSnap && xpSnap.exists()) {
+        const xd = xpSnap.data();
+        _xpSession.loginStreakDays = xd.loginStreakDays || 0;
+        _xpSession.todayXP = xd.todayXP || 0;
+        _xpSession.todayMastered = xd.todayMastered || 0;
+        _xpSession.todayArticles = xd.todayArticles || 0;
+        _xpSession.todayActiveMin = xd.todayActiveMin || 0;
+      }
+    } catch(e) { console.warn('Pull XP error:', e); }
+
+    // 6. Thống kê học — ghi đè từ cloud
+    try {
+      const userSnap2 = await window._getDoc(userDoc());
+      if (userSnap2.exists()) {
+        const d = userSnap2.data();
+        // Cập nhật lại userDoc với stats từ cloud (đã có sẵn)
+        // Không cần ghi lại, chỉ cần refreshStatsBar sẽ đọc từ Firestore
+      }
+    } catch(e) { console.warn('Pull stats error:', e); }
+
     renderPacksGrid();
+    refreshStatsBar();
     showToast('success', '⬇ Đã tải dữ liệu mới nhất từ cloud!');
   } catch(e) {
     showToast('error', '✕ Lỗi: ' + e.message);
