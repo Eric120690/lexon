@@ -3939,12 +3939,10 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
 }`;
 
   try {
+    console.log('[LuyenTap] API Key length:', apiKey.length, '| first 8:', apiKey.slice(0,8));
     const res = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: 'claude-sonnet-4.6',
         max_tokens: 4000,
@@ -3953,6 +3951,8 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
     });
 
     if (!res.ok) {
+      const errBody = await res.text().catch(()=>'');
+      console.error('[LuyenTap] Error:', res.status, errBody);
       if (res.status === 401) throw new Error('API Key không hợp lệ');
       throw new Error(`Lỗi server ${res.status}`);
     }
