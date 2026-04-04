@@ -2205,6 +2205,7 @@ function _adminLoadSettingsUI() {
   set('xpSet-STREAK_7',  v.STREAK_BONUS[7]  || 5);
   set('xpSet-STREAK_14', v.STREAK_BONUS[14] || 10);
   set('xpSet-STREAK_21', v.STREAK_BONUS[21] || 20);
+  set('adminMavisApiKey', _mavisApiKey);
 }
 
 async function adminSaveXPValues() {
