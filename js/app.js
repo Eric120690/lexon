@@ -3610,862 +3610,397 @@ window.addEventListener('online',  () => _showOfflineBanner(false));
 window.addEventListener('offline', () => _showOfflineBanner(true));
 if (!navigator.onLine) _showOfflineBanner(true);
 
+
 // ============================================================
-//  ⚡ LUYỆN TẬP — AI-powered practice session
+//  ⚡ LUYỆN TẬP — AI-powered practice (from lexon-vocab-app)
 // ============================================================
 
 let _ltWords = [];
 let _ltGroups = [];
-let _ltCurrentGroup = 0;
-let _ltExercises = [];
-let _ltCurrentEx = 0;
-let _ltScore = 0;
-let _ltTotal = 0;
-let _ltIsSaved = false; // đã lưu lên Firebase chưa
-const LT_MAX_WORDS = 20;
+let _ltGroupStates = [];
+const LT_MAX_WORDS = 30;
+const LT_GROUP_COLORS = ['var(--neon-cyan)','var(--neon-pink)','var(--neon-purple)','var(--neon-green)'];
+const LT_GROUP_ICONS = ['📘','📗','📙','📕'];
 
 function openLuyenTap() {
-  _ltWords = words.filter(w => !w.mastered && !w.hidden);
+  let pool = words.filter(w => !w.mastered && !w.hidden);
+  if (!pool.length) { showToast('error','⚠ Không có từ nào đang học.'); return; }
+
+  // Lấy ngẫu nhiên tối đa 30 từ
+  if (pool.length > LT_MAX_WORDS) {
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+    pool = pool.slice(0, LT_MAX_WORDS);
+  }
+  _ltWords = pool;
+  _ltGroups = [];
+  _ltGroupStates = [];
 
   let overlay = document.getElementById('luyentapOverlay');
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'luyentapOverlay';
-    overlay.className = 'lt-overlay';
     document.body.appendChild(overlay);
   }
-
+  overlay.className = 'lt-overlay show';
   overlay.innerHTML = `
     <div class="lt-modal">
       <div class="lt-modal-header">
         <div class="lt-modal-title">⚡ Luyện tập cùng AI</div>
         <button class="lt-close-btn" onclick="closeLuyenTap()">✕</button>
       </div>
-      <div class="lt-modal-body" id="ltBody"></div>
-    </div>
-  `;
-
-  overlay.classList.add('show');
-  document.body.style.overflow = 'hidden';
-
-  _ltRenderWordPreview();
-}
-
-async function _ltRenderWordPreview() {
-  const body = document.getElementById('ltBody');
-  const count = _ltWords.length;
-
-  if (count < 3) {
-    body.innerHTML = `
-      <div class="lt-error">
-        <div style="font-size:2rem">📭</div>
-        <div>Cần ít nhất 3 từ chưa thuộc để luyện tập!</div>
-        <button class="lt-retry-btn" onclick="closeLuyenTap()">Đóng</button>
-      </div>`;
-    return;
-  }
-
-  if (count > LT_MAX_WORDS) {
-    body.innerHTML = `
-      <div class="lt-preview">
-        <div class="lt-preview-stats">
-          <div class="lt-stat-box">
-            <div class="lt-stat-num" style="color:var(--neon-yellow)">${count}</div>
-            <div class="lt-stat-lbl">từ chưa thuộc</div>
-          </div>
-          <div class="lt-stat-box">
-            <div class="lt-stat-num" style="color:var(--neon-green)">${words.filter(w=>w.mastered).length}</div>
-            <div class="lt-stat-lbl">đã thuộc</div>
-          </div>
-          <div class="lt-stat-box">
-            <div class="lt-stat-num" style="color:var(--neon-cyan)">${words.filter(w=>w.hidden).length}</div>
-            <div class="lt-stat-lbl">đã ẩn</div>
-          </div>
-        </div>
-        <div class="lt-limit-warn">
-          <div class="lt-limit-icon">⚠</div>
-          <div class="lt-limit-title">Quá nhiều từ để luyện tập</div>
-          <div class="lt-limit-msg">
-            Bạn đang có <strong>${count} từ</strong> chưa thuộc.<br>
-            Tính năng này chỉ hoạt động với <strong>≤ ${LT_MAX_WORDS} từ</strong> để bài tập không quá dài và hiệu quả hơn.<br><br>
-            Hãy <strong>học thêm vài từ</strong> trong flashcard hoặc <strong>ẩn bớt</strong> những từ chưa muốn học trước.
-          </div>
-        </div>
-        <button class="lt-retry-btn" style="width:100%;padding:12px;margin-top:4px" onclick="closeLuyenTap()">← Quay lại flashcard</button>
-      </div>`;
-    return;
-  }
-
-  // ── Kiểm tra IDB local trước ──
-  const cacheKey = 'lt::' + (currentPack?.id || 'default');
-  const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
-  let cached = null;
-  try { cached = await IDB.get(cacheKey); } catch(e) {}
-
-  const hasLocal = cached && cached.groups?.length;
-  const hasSameWords = hasLocal && cached.wordSnapshot === wordSnapshot;
-  const savedDate = cached ? new Date(cached.savedAt) : null;
-  const dateStr = savedDate ? savedDate.toLocaleDateString('vi-VN', {
-    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
-  }) : '';
-
-  const wordChips = _ltWords.map(w => `
-    <div class="lt-preview-word-row">
-      <span class="lt-preview-word">${h(w.word)}</span>
-      <span class="lt-preview-meaning">${h(w.meaning)}</span>
-    </div>
-  `).join('');
-
-  // Banner bài đã lưu local
-  const cachedBanner = hasLocal ? `
-    <div class="lt-cached-banner">
-      <div class="lt-cached-info">
-        <span class="lt-cached-icon">💾</span>
-        <div>
-          <div class="lt-cached-title">${hasSameWords ? 'Có bài tập đã lưu trên máy' : 'Có bài cũ (danh sách từ đã thay đổi)'}</div>
-          <div class="lt-cached-date">Lưu lúc ${dateStr} · ${cached.groups?.length || 0} nhóm</div>
+      <div class="lt-body" id="ltBody">
+        <div style="text-align:center;padding:30px 0">
+          <div style="font-size:2.5rem;margin-bottom:12px">🧠</div>
+          <div style="font-size:0.82rem;color:rgba(255,255,255,0.7);margin-bottom:6px">Đang lấy <strong style="color:var(--neon-cyan)">${_ltWords.length}</strong> từ đang học</div>
+          <div style="font-size:0.68rem;color:rgba(255,255,255,0.3);margin-bottom:20px">${_ltWords.map(w=>w.word).join(', ')}</div>
+          <button class="lt-start-btn" onclick="_ltClassify()">✦ Bắt đầu luyện tập</button>
         </div>
       </div>
-      <button class="lt-cached-use-btn" onclick="_ltLoadCached()">▶ Dùng ngay</button>
-    </div>
-  ` : '';
-
-  // Banner tải từ cloud (chỉ khi online + đăng nhập)
-  const cloudBanner = isLoggedIn() ? `
-    <div class="lt-cloud-pull-banner">
-      <span class="lt-cached-icon">☁</span>
-      <div style="flex:1">
-        <div class="lt-cached-title" style="color:var(--neon-cyan)">Tải bài tập từ cloud</div>
-        <div class="lt-cached-date">Bài tập bạn đã lưu trên thiết bị khác</div>
-      </div>
-      <button class="lt-cached-use-btn" id="ltPullBtn" style="border-color:rgba(0,245,255,0.35);color:var(--neon-cyan);background:rgba(0,245,255,0.08)" onclick="_ltPullFromFirebase()">⬇ Tải xuống</button>
-    </div>
-  ` : '';
-
-  body.innerHTML = `
-    <div class="lt-preview">
-      <div class="lt-preview-stats">
-        <div class="lt-stat-box">
-          <div class="lt-stat-num" style="color:var(--neon-cyan)">${count}</div>
-          <div class="lt-stat-lbl">từ sẽ luyện</div>
-        </div>
-        <div class="lt-stat-box">
-          <div class="lt-stat-num" style="color:var(--neon-purple)">4</div>
-          <div class="lt-stat-lbl">dạng bài tập</div>
-        </div>
-        <div class="lt-stat-box">
-          <div class="lt-stat-num" style="color:var(--neon-green)">${Math.min(4, Math.ceil(count/5))}</div>
-          <div class="lt-stat-lbl">nhóm từ</div>
-        </div>
-      </div>
-
-      ${cachedBanner}
-      ${cloudBanner}
-
-      <div class="lt-preview-list-label">Danh sách từ sẽ luyện tập</div>
-      <div class="lt-preview-word-list">${wordChips}</div>
-
-      <button class="lt-start-ex-btn" style="margin-top:16px" onclick="_ltGenerate()">
-        ✦ Tạo bài tập mới bằng AI →
-      </button>
-    </div>
-  `;
+    </div>`;
 }
 
 function closeLuyenTap() {
   const overlay = document.getElementById('luyentapOverlay');
-  if (overlay) {
-    overlay.classList.remove('show');
-    document.body.style.overflow = '';
-  }
+  if (overlay) overlay.className = 'lt-overlay';
 }
 
-// ── Key Firebase: users/{uid}/luyenTap/{packId} ──
-function _ltFirebaseRef() {
-  const packId = currentPack?.id || 'default';
-  return window._doc(window._db, 'users', getUID(), 'luyenTap', packId);
-}
-
-// Load từ IDB local (không gọi network)
-async function _ltLoadCached() {
-  const cacheKey = 'lt::' + (currentPack?.id || 'default');
-  try {
-    const cached = await IDB.get(cacheKey);
-    if (!cached || !cached.groups?.length) {
-      showToast('error', '⚠ Không tìm thấy bài tập đã lưu');
-      return;
-    }
-    _ltGroups = cached.groups;
-    _ltCurrentGroup = 0;
-    _ltCurrentEx = 0;
-    _ltScore = 0;
-    _ltTotal = 0;
-    _ltIsSaved = true; // đã có trên cloud (bài này từ cloud kéo về)
-    _ltRenderGroupMenu();
-  } catch(e) {
-    showToast('error', '⚠ Lỗi tải bài tập: ' + e.message);
-  }
-}
-
-// Lưu bài tập lên Firebase + cache IDB
-async function _ltSaveToFirebase() {
-  if (!isLoggedIn()) { showToast('error', '⚠ Cần đăng nhập để lưu'); return; }
-  if (!_ltGroups.length) return;
-  const btn = document.getElementById('ltSaveBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Đang lưu...'; }
-  try {
-    const now = Date.now();
-    const packId = currentPack?.id || 'default';
-    const wordSnapshot = _ltWords.map(w => w.word).sort().join(',');
-    const payload = {
-      groups: _ltGroups,
-      wordSnapshot,
-      packId,
-      packName: currentPack?.name || '',
-      savedAt: now
-    };
-    // Lưu Firebase
-    await window._setDoc(_ltFirebaseRef(), payload, { merge: false });
-    // Cache IDB luôn
-    await IDB.set('lt::' + packId, payload).catch(() => {});
-    _ltIsSaved = true;
-    _ltRenderGroupMenu();
-    showToast('success', '☁ Đã lưu bài tập lên cloud!');
-  } catch(e) {
-    showToast('error', '✕ Lỗi lưu: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '☁ Lưu bài tập lên cloud'; }
-  }
-}
-
-// Kéo bài tập từ Firebase về (user chủ động nhấn)
-async function _ltPullFromFirebase() {
-  if (!isLoggedIn()) { showToast('error', '⚠ Cần đăng nhập'); return; }
-  if (!navigator.onLine) { showToast('error', '⚠ Không có mạng'); return; }
+async function _ltClassify() {
   const body = document.getElementById('ltBody');
-  // Hiện loading nhỏ
-  const pullBtn = document.getElementById('ltPullBtn');
-  if (pullBtn) { pullBtn.disabled = true; pullBtn.textContent = '⟳ Đang tải...'; }
-  try {
-    const snap = await window._getDoc(_ltFirebaseRef());
-    if (!snap.exists() || !snap.data().groups?.length) {
-      showToast('error', '⚠ Chưa có bài tập trên cloud cho gói này');
-      if (pullBtn) { pullBtn.disabled = false; pullBtn.textContent = '⬇ Tải từ cloud'; }
-      return;
-    }
-    const data = snap.data();
-    // Lưu vào IDB
-    const packId = currentPack?.id || 'default';
-    await IDB.set('lt::' + packId, data).catch(() => {});
-    _ltGroups = data.groups;
-    _ltCurrentGroup = 0;
-    _ltCurrentEx = 0;
-    _ltScore = 0;
-    _ltTotal = 0;
-    _ltIsSaved = true;
-    showToast('success', '⬇ Đã tải bài tập từ cloud!');
-    _ltRenderGroupMenu();
-  } catch(e) {
-    showToast('error', '✕ Lỗi tải: ' + e.message);
-    if (pullBtn) { pullBtn.disabled = false; pullBtn.textContent = '⬇ Tải từ cloud'; }
-  }
-}
-
-async function _ltGenerate() {
   const apiKey = getApiKey();
   if (!apiKey) {
-    document.getElementById('ltBody').innerHTML = `
-      <div class="lt-error">
-        <div style="font-size:2rem">🔑</div>
-        <div>Chưa có API Key. Admin cần cài đặt API Key trong Admin Panel.</div>
-        <button class="lt-retry-btn" onclick="closeLuyenTap()">Đóng</button>
-      </div>`;
+    body.innerHTML = `<div style="text-align:center;padding:30px"><div style="font-size:2rem">🔑</div><div style="margin-top:10px;color:rgba(255,255,255,0.5)">Chưa có API Key. Admin cần cài đặt API Key trong Admin Panel.</div><button class="lt-start-btn" style="margin-top:16px" onclick="closeLuyenTap()">Đóng</button></div>`;
     return;
   }
 
-  // Hiện loading
-  document.getElementById('ltBody').innerHTML = `
-    <div class="lt-loading">
-      <div class="lt-loading-spinner"></div>
-      <div class="lt-loading-title">AI đang tạo bài tập...</div>
-      <div class="lt-loading-sub">Đang phân nhóm ${_ltWords.length} từ và viết đoạn văn</div>
-    </div>`;
-  const wordList = _ltWords.slice(0, 30).map(w =>
-    `${w.word}|${w.meaning}|${w.type||''}|${w.level||''}`
-  ).join('\n');
+  body.innerHTML = `<div style="text-align:center;padding:40px"><div class="lt-spinner"></div><div style="margin-top:14px;color:rgba(255,255,255,0.5);font-size:0.78rem">AI đang phân nhóm ${_ltWords.length} từ...</div></div>`;
 
-  const prompt = `Bạn là giáo viên tiếng Anh. Tôi có danh sách từ vựng sau (định dạng: từ|nghĩa|loại từ|level):
-
-${wordList}
-
-Hãy:
-1. Phân nhóm các từ thành 2-4 nhóm theo chủ đề hoặc ngữ nghĩa liên quan (mỗi nhóm 3-8 từ)
-2. Viết 1 đoạn văn ngắn (4-6 câu) bằng tiếng Anh tích hợp tự nhiên các từ trong nhóm
-3. Tạo bài tập cho mỗi nhóm gồm 4 loại:
-   - "mcq": 4-6 câu trắc nghiệm về nghĩa hoặc cách dùng (4 đáp án, 1 đúng)
-   - "match": nối từ với nghĩa (4-6 cặp)
-   - "fill": điền từ vào chỗ trống (3-5 câu, mỗi câu bỏ 1 từ trong nhóm)
-   - "order": sắp xếp các từ thành câu hoàn chỉnh (2-3 câu)
-
-QUY TẮC BẮT BUỘC cho bài "order":
-- Trường "words" phải chứa ĐÚNG các từ cấu thành câu trong "answer", không thêm không bớt
-- Ghép tất cả từ trong "words" lại (theo đúng thứ tự) phải ra đúng câu "answer"
-- Ví dụ đúng: words: ["The","cat","sat"] → answer: "The cat sat"
-- Ví dụ SAI: words: ["cat","sat"] nhưng answer: "The cat sat" (thiếu "The")
-
-Trả về JSON hợp lệ, không có gì khác ngoài JSON:
-{
-  "groups": [
-    {
-      "theme": "tên chủ đề",
-      "words": ["word1", "word2"],
-      "passage": "đoạn văn tiếng Anh",
-      "passage_vi": "dịch nghĩa tiếng Việt ngắn gọn",
-      "exercises": {
-        "mcq": [
-          { "q": "câu hỏi", "opts": ["A","B","C","D"], "ans": 0 }
-        ],
-        "match": [
-          { "word": "từ", "meaning": "nghĩa tiếng Việt" }
-        ],
-        "fill": [
-          { "sentence": "câu với ___ thay từ cần điền", "answer": "từ cần điền", "hint": "gợi ý ngắn" }
-        ],
-        "order": [
-          { "words": ["The","cat","sat"], "answer": "The cat sat" }
-        ]
-      }
-    }
-  ]
-}`;
+  const wordList = _ltWords.map(w => `${w.word} - ${w.meaning}`).join('\n');
 
   try {
-    console.log('[LuyenTap] API Key length:', apiKey.length, '| first 8:', apiKey.slice(0,8));
     const res = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'claude-sonnet-4.6',
-        max_tokens: 4000,
-        messages: [{ role: 'user', content: prompt }]
+        model: 'claude-sonnet-4.6', max_tokens: 4000,
+        messages: [{ role: 'user', content: `Bạn là chuyên gia từ vựng tiếng Anh. Phân loại danh sách từ vựng sau thành TỐI ĐA 4 nhóm có ý nghĩa.\n\nTừ vựng:\n${wordList}\n\nTrả lời CHỈ bằng JSON hợp lệ, không markdown:\n{"groups":[{"name":"Tên nhóm","description":"Mô tả ngắn","words":[{"en":"word","vi":"nghĩa"}]}]}` }]
       })
     });
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(()=>'');
-      console.error('[LuyenTap] Error:', res.status, errBody);
-      if (res.status === 401) throw new Error('API Key không hợp lệ');
-      throw new Error(`Lỗi server ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`Lỗi server ${res.status}`);
     const data = await res.json();
     let text = data.choices?.[0]?.message?.content || '';
-
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
+    let cleaned = text.trim().replace(/```json?\n?/g,'').replace(/```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
     _ltGroups = parsed.groups || [];
-    if (!_ltGroups.length) throw new Error('AI không trả về nhóm từ nào');
+    if (!_ltGroups.length) throw new Error('AI không trả về nhóm nào');
 
-    // ── Post-process: đảm bảo order.words khớp chính xác với answer ──
-    _ltGroups.forEach(g => {
-      (g.exercises?.order || []).forEach(item => {
-        if (!item.answer) return;
-        // Tách answer thành từng từ → đây mới là nguồn sự thật
-        const correctWords = item.answer.trim().split(/\s+/);
-        // Chỉ ghi đè nếu words bị thiếu hoặc thừa so với answer
-        const builtFromWords = (item.words || []).join(' ').toLowerCase().replace(/[.,!?]+$/,'').trim();
-        const builtFromAnswer = correctWords.join(' ').toLowerCase().replace(/[.,!?]+$/,'').trim();
-        if (builtFromWords !== builtFromAnswer) {
-          item.words = correctWords; // fix: lấy từ answer
-        }
+    _ltGroupStates = _ltGroups.map(() => ({
+      article: null, articleLoading: false,
+      exercises: {}, exAnswers: {}, exScore: { correct: 0, total: 0 },
+      currentExType: 'mc', _matchState: null, _fibFilled: null, _orderState: null
+    }));
+
+    _ltRenderGroups();
+  } catch (e) {
+    body.innerHTML = `<div style="text-align:center;padding:30px"><div style="font-size:2rem">⚠</div><div style="margin-top:10px;color:rgba(255,255,255,0.5)">Lỗi: ${h(e.message)}</div><button class="lt-start-btn" style="margin-top:16px" onclick="_ltClassify()">↺ Thử lại</button></div>`;
+  }
+}
+
+// ── Render nhóm từ dạng accordion ──
+function _ltRenderGroups() {
+  const body = document.getElementById('ltBody');
+  body.innerHTML = _ltGroups.map((g, i) => `
+    <div class="lt-group-panel" id="ltPanel-${i}" style="--gc:${LT_GROUP_COLORS[i % 4]}">
+      <div class="lt-group-header" onclick="_ltTogglePanel(${i})">
+        <div class="lt-group-left">
+          <div class="lt-group-icon">${LT_GROUP_ICONS[i % 4]}</div>
+          <div>
+            <div class="lt-group-name">${h(g.name)}</div>
+            <div class="lt-group-desc">${h(g.description || '')}</div>
+          </div>
+        </div>
+        <div class="lt-group-meta">
+          <span class="lt-group-count">${g.words.length} từ</span>
+          <span class="lt-chevron">▼</span>
+        </div>
+      </div>
+      <div class="lt-group-body">
+        <div class="lt-panel-tabs">
+          <button class="lt-ptab active" id="ltPtab-${i}-words" onclick="_ltSwitchTab(${i},'words')">📋 Từ vựng</button>
+          <button class="lt-ptab" id="ltPtab-${i}-article" onclick="_ltSwitchTab(${i},'article')">📖 Bài viết</button>
+          <button class="lt-ptab" id="ltPtab-${i}-exercise" onclick="_ltSwitchTab(${i},'exercise')">🎯 Bài tập</button>
+        </div>
+        <div class="lt-panel-content">
+          <div id="ltContent-${i}-words">${_ltRenderWordList(g.words)}</div>
+          <div id="ltContent-${i}-article" style="display:none"></div>
+          <div id="ltContent-${i}-exercise" style="display:none"></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function _ltRenderWordList(words) {
+  return `<div class="lt-word-grid">${words.map(w => `
+    <div class="lt-word-chip">
+      <div class="lt-word-en">${h(w.en)}</div>
+      <div class="lt-word-vi">${h(w.vi)}</div>
+    </div>`).join('')}</div>`;
+}
+
+function _ltTogglePanel(i) {
+  document.getElementById(`ltPanel-${i}`).classList.toggle('open');
+}
+
+function _ltSwitchTab(i, tab) {
+  ['words','article','exercise'].forEach(t => {
+    document.getElementById(`ltPtab-${i}-${t}`).classList.toggle('active', t === tab);
+    document.getElementById(`ltContent-${i}-${t}`).style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'article') _ltLoadArticle(i);
+  if (tab === 'exercise') _ltLoadExercisePanel(i);
+}
+
+// ── Bài viết ──
+async function _ltLoadArticle(i) {
+  const gs = _ltGroupStates[i];
+  const el = document.getElementById(`ltContent-${i}-article`);
+  if (gs.article) { _ltRenderArticle(i); return; }
+  if (gs.articleLoading) return;
+  gs.articleLoading = true;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:20px;color:rgba(255,255,255,0.4)"><div class="lt-spinner"></div> Đang tạo bài viết...</div>`;
+  const g = _ltGroups[i];
+  const wordList = g.words.map(w => `${w.en} (${w.vi})`).join(', ');
+  try {
+    const apiKey = getApiKey();
+    const res = await fetch(`${API_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4.6', max_tokens: 2000,
+        messages: [{ role: 'user', content: `Viết một bài đọc tiếng Anh ngắn (150-250 từ) có chủ đề liên quan đến nhóm từ "${g.name}". Sử dụng TẤT CẢ các từ sau một cách tự nhiên: ${wordList}\n\nYêu cầu:\n- Bài viết mạch lạc, có đầu có cuối\n- Các từ vựng in đậm bằng **word**\n- Chỉ trả về bài viết, không giải thích thêm` }]
+      })
+    });
+    if (!res.ok) throw new Error(`Lỗi server ${res.status}`);
+    const data = await res.json();
+    gs.article = data.choices?.[0]?.message?.content || '';
+    _ltRenderArticle(i);
+  } catch (e) {
+    el.innerHTML = `<div style="padding:16px;color:var(--neon-pink);font-size:0.78rem">✕ Lỗi: ${h(e.message)}</div>`;
+  }
+  gs.articleLoading = false;
+}
+
+function _ltRenderArticle(i) {
+  const gs = _ltGroupStates[i];
+  const el = document.getElementById(`ltContent-${i}-article`);
+  const html = gs.article.replace(/\*\*(.*?)\*\*/g, '<mark>$1</mark>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+  el.innerHTML = `<div class="lt-article-box"><p>${html}</p></div>
+    <button class="lt-start-btn" style="margin-top:12px;font-size:0.72rem;padding:8px 18px" onclick="_ltGroupStates[${i}].article=null;_ltLoadArticle(${i})">↺ Tạo lại</button>`;
+}
+
+// ── Bài tập ──
+function _ltLoadExercisePanel(i) {
+  const el = document.getElementById(`ltContent-${i}-exercise`);
+  const gs = _ltGroupStates[i];
+  el.innerHTML = `
+    <div class="lt-score-bar">
+      <div class="lt-score-num" id="ltScoreNum-${i}">0%</div>
+      <div class="lt-score-info">
+        <div class="lt-score-title">Điểm — <span id="ltScoreDetail-${i}">0/0 câu đúng</span></div>
+        <div class="lt-score-track"><div class="lt-score-fill" id="ltScoreFill-${i}" style="width:0%"></div></div>
+      </div>
+      <button class="lt-start-btn" style="font-size:0.65rem;padding:6px 12px" onclick="_ltResetExercise(${i})">↺ Làm lại</button>
+    </div>
+    <div class="lt-ex-tabs">
+      ${[['mc','❶ Trắc nghiệm'],['tf','✓✗ Đúng/Sai'],['match','⟷ Nối từ'],['fib','___ Điền từ'],['order','↕ Sắp xếp']].map(([id,label]) => `
+        <button class="lt-ex-tab ${id==='mc'?'active':''}" id="ltExTab-${i}-${id}" onclick="_ltSwitchExTab(${i},'${id}')">${label}</button>`).join('')}
+    </div>
+    <div id="ltExContainer-${i}"></div>`;
+  _ltUpdateScore(i);
+  _ltLoadExercise(i, 'mc');
+}
+
+function _ltSwitchExTab(i, type) {
+  document.querySelectorAll(`[id^="ltExTab-${i}-"]`).forEach(b => b.classList.remove('active'));
+  document.getElementById(`ltExTab-${i}-${type}`).classList.add('active');
+  _ltGroupStates[i].currentExType = type;
+  _ltLoadExercise(i, type);
+}
+
+async function _ltLoadExercise(i, type) {
+  const gs = _ltGroupStates[i];
+  if (gs.exercises[type]) { _ltRenderExercise(i, type, gs.exercises[type]); return; }
+  const container = document.getElementById(`ltExContainer-${i}`);
+  container.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:24px;color:rgba(255,255,255,0.4)"><div class="lt-spinner"></div> Đang tạo bài tập...</div>`;
+  const g = _ltGroups[i];
+  const wordList = g.words.map(w => `${w.en}: ${w.vi}`).join('\n');
+  let prompt = '';
+
+  if (type==='mc') {
+    prompt = `Bạn là giáo viên tiếng Anh. Dựa vào danh sách từ vựng sau, tạo 5 câu hỏi Multiple Choice.\n\nTừ vựng:\n${wordList}\n\nYêu cầu: Mỗi câu kiểm tra 1 từ (nghĩa, cách dùng, hoặc điền từ). 4 lựa chọn, 1 đúng.\n\nTrả lời CHỈ bằng JSON hợp lệ (không markdown):\n{"questions":[{"question":"câu hỏi","options":["A. ...","B. ...","C. ...","D. ..."],"answer":0}]}\n"answer" là index 0-3.`;
+  } else if (type==='tf') {
+    prompt = `Bạn là giáo viên tiếng Anh. Dựa vào danh sách từ vựng sau, tạo 6 câu True/False.\n\nTừ vựng:\n${wordList}\n\nYêu cầu: Mỗi câu là phát biểu về nghĩa/cách dùng. Khoảng 3 đúng 3 sai.\n\nTrả lời CHỈ bằng JSON hợp lệ (không markdown):\n{"questions":[{"statement":"phát biểu tiếng Anh","answer":true}]}`;
+  } else if (type==='match') {
+    prompt = `Từ danh sách từ vựng sau, chọn 6 từ tạo bài Matching (nối từ tiếng Anh với nghĩa tiếng Việt).\n\nTừ vựng:\n${wordList}\n\nTrả lời CHỈ bằng JSON hợp lệ (không markdown):\n{"pairs":[{"word":"english word","meaning":"nghĩa tiếng Việt"}]}\nChỉ trả về đúng 6 cặp.`;
+  } else if (type==='fib') {
+    prompt = `Bạn là giáo viên tiếng Anh. Dựa vào danh sách từ vựng sau, tạo 5 câu Fill in the Blank.\n\nTừ vựng:\n${wordList}\n\nYêu cầu: Câu ví dụ ngắn 10-15 từ, 1 chỗ trống, 4 lựa chọn gồm đáp án đúng và 3 sai.\n\nTrả lời CHỈ bằng JSON hợp lệ (không markdown):\n{"questions":[{"sentence":"câu với ___ ","answer":"từ đúng","options":["từ1","từ2","từ3","từ4"]}]}`;
+  } else if (type==='order') {
+    prompt = `Bạn là giáo viên tiếng Anh. Dựa vào danh sách từ vựng sau, tạo 4 câu Sentence Order.\n\nTừ vựng:\n${wordList}\n\nYêu cầu: Câu ngắn 6-10 từ, "shuffled" là các từ đã xáo trộn hoàn toàn.\n\nTrả lời CHỈ bằng JSON hợp lệ (không markdown):\n{"questions":[{"correct":"câu hoàn chỉnh","shuffled":["từ1","từ2","từ3"]}]}`;
+  }
+
+  try {
+    const apiKey = getApiKey();
+    const res = await fetch(`${API_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'claude-sonnet-4.6', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
+    });
+    if (!res.ok) throw new Error(`Lỗi server ${res.status}`);
+    const data = await res.json();
+    let text = data.choices?.[0]?.message?.content || '';
+    let cleaned = text.trim().replace(/```json?\n?/g,'').replace(/```/g,'').trim();
+    const parsed = JSON.parse(cleaned);
+    gs.exercises[type] = parsed;
+    _ltRenderExercise(i, type, parsed);
+  } catch (e) {
+    container.innerHTML = `<div style="padding:16px;color:var(--neon-pink);font-size:0.78rem">✕ Lỗi: ${h(e.message)}</div>`;
+  }
+}
+
+function _ltEsc(s) { return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+
+function _ltRenderExercise(gi, type, data) {
+  const container = document.getElementById(`ltExContainer-${gi}`);
+  const gs = _ltGroupStates[gi];
+  let html = '<div class="lt-exercise-wrap">';
+
+  if (type === 'mc') {
+    (data.questions||[]).forEach((q, i) => {
+      const key = `mc_${i}`; const answered = gs.exAnswers[key] !== undefined;
+      html += `<div class="lt-q-block"><div class="lt-q-num">CÂU ${i+1}</div><div class="lt-q-text">${h(q.question)}</div><div class="lt-mc-opts">`;
+      q.options.forEach((opt, oi) => {
+        let cls = '';
+        if (answered) { if (oi===q.answer) cls='correct show-correct'; if (oi===gs.exAnswers[key]&&oi!==q.answer) cls='wrong'; if (oi===gs.exAnswers[key]&&oi===q.answer) cls='correct'; }
+        html += `<div class="lt-mc-opt ${cls} ${answered?'answered':''}" onclick="_ltAnswerMC(${gi},'${key}',${oi},${q.answer})"><span class="lt-opt-letter">${String.fromCharCode(65+oi)}</span>${h(opt.replace(/^[A-D]\.\s*/,''))}</div>`;
       });
+      html += `</div>${answered?`<div class="lt-feedback ${gs.exAnswers[key]===q.answer?'correct':'wrong'}">${gs.exAnswers[key]===q.answer?'✓ Chính xác!':'✗ Sai. Đáp án: '+String.fromCharCode(65+q.answer)}</div>`:''}</div>`;
     });
 
-    _ltCurrentGroup = 0;
-    _ltCurrentEx = 0;
-    _ltScore = 0;
-    _ltTotal = 0;
-    _ltIsSaved = false;
+  } else if (type === 'tf') {
+    (data.questions||[]).forEach((q, i) => {
+      const key = `tf_${i}`; const answered = gs.exAnswers[key] !== undefined;
+      html += `<div class="lt-q-block"><div class="lt-q-num">CÂU ${i+1}</div><div class="lt-q-text">${h(q.statement)}</div><div class="lt-tf-opts">`;
+      ['True','False'].forEach((label, li) => {
+        const val = li===0; let cls = '';
+        if (answered) { if (val===q.answer) cls='show-correct'; if (gs.exAnswers[key]===val&&val!==q.answer) cls='wrong'; if (gs.exAnswers[key]===val&&val===q.answer) cls='correct'; }
+        html += `<div class="lt-tf-btn ${cls} ${answered?'answered':''}" onclick="_ltAnswerTF(${gi},'${key}',${val},${q.answer})">${li===0?'✓ True':'✗ False'}</div>`;
+      });
+      html += `</div>${answered?`<div class="lt-feedback ${gs.exAnswers[key]===q.answer?'correct':'wrong'}">${gs.exAnswers[key]===q.answer?'✓ Chính xác!':'✗ Sai. Đáp án: '+(q.answer?'True':'False')}</div>`:''}</div>`;
+    });
 
-    _ltRenderGroupMenu();
-  } catch(e) {
-    document.getElementById('ltBody').innerHTML = `
-      <div class="lt-error">
-        <div style="font-size:2rem">⚠</div>
-        <div>Không tạo được bài tập: ${e.message}</div>
-        <button class="lt-retry-btn" onclick="_ltGenerate()">↺ Thử lại</button>
-      </div>`;
-  }
-}
+  } else if (type === 'match') {
+    const pairs = data.pairs||[];
+    if (!gs._matchState) { const sm = [...pairs].sort(()=>Math.random()-0.5); gs._matchState = { shuffledMeanings:sm, selected:null, matched:{} }; }
+    const ms = gs._matchState;
+    html += `<div class="lt-q-block"><div class="lt-q-num">NỐI TỪ VỚI NGHĨA</div><div class="lt-match-grid"><div class="lt-match-col"><div class="lt-match-label">TỪ VỰNG</div>`;
+    pairs.forEach((p, i) => { const matched = ms.matched[`w${i}`]; let cls = matched?(matched.correct?'matched-correct':'matched-wrong'):(ms.selected===`w${i}`?'selected':''); html += `<div class="lt-match-item ${cls}" onclick="_ltSelectMatch(${gi},'w${i}','${_ltEsc(p.word)}','${_ltEsc(p.meaning)}')">${h(p.word)}</div>`; });
+    html += `</div><div class="lt-match-col"><div class="lt-match-label">NGHĨA</div>`;
+    ms.shuffledMeanings.forEach((p, i) => { const matched = ms.matched[`m${i}`]; let cls = matched?(matched.correct?'matched-correct':'matched-wrong'):(ms.selected===`m${i}`?'selected':''); html += `<div class="lt-match-item ${cls}" onclick="_ltSelectMatch(${gi},'m${i}','${_ltEsc(p.word)}','${_ltEsc(p.meaning)}')">${h(p.meaning)}</div>`; });
+    html += `</div></div></div>`;
 
-function _ltRenderGroupMenu() {
-  const body = document.getElementById('ltBody');
-  if (!body) return;
+  } else if (type === 'fib') {
+    (data.questions||[]).forEach((q, i) => {
+      const key = `fib_${i}`; const answered = gs.exAnswers[key] !== undefined; const filled = gs._fibFilled?gs._fibFilled[key]:null;
+      const sentHtml = h(q.sentence).replace('___', `<span class="lt-fib-blank ${answered?(gs.exAnswers[key]===q.answer?'correct':'wrong'):(filled?'filled':'')}" onclick="_ltClearFib(${gi},'${key}')">${filled||'&nbsp;&nbsp;&nbsp;&nbsp;'}</span>`);
+      html += `<div class="lt-q-block"><div class="lt-q-num">CÂU ${i+1}</div><div class="lt-fib-opts">${(q.options||[]).map(opt => `<span class="lt-fib-word ${(filled===opt||gs.exAnswers[key]===opt)?'used':''}" onclick="_ltFillBlank(${gi},'${key}','${_ltEsc(opt)}','${_ltEsc(q.answer)}')">${h(opt)}</span>`).join('')}</div><div class="lt-fib-sentence">${sentHtml}</div>${answered?`<div class="lt-feedback ${gs.exAnswers[key]===q.answer?'correct':'wrong'}">${gs.exAnswers[key]===q.answer?'✓ Chính xác!':'✗ Sai. Đáp án: '+h(q.answer)}</div>`:''}${filled&&!answered?`<button class="lt-start-btn" style="font-size:0.7rem;padding:7px 16px;margin-top:10px" onclick="_ltSubmitFib(${gi},'${key}','${_ltEsc(q.answer)}')">Kiểm tra</button>`:''}</div>`;
+    });
 
-  const groupCards = _ltGroups.map((g, i) => `
-    <div class="lt-group-card" onclick="_ltStartGroup(${i})">
-      <div class="lt-group-icon">${['📘','📗','📙','📕'][i % 4]}</div>
-      <div class="lt-group-info">
-        <div class="lt-group-theme">${g.theme}</div>
-        <div class="lt-group-words">${g.words.slice(0,5).join(', ')}${g.words.length>5?'...':''}</div>
-        <div class="lt-group-meta">${g.words.length} từ · 4 dạng bài tập</div>
-      </div>
-      <div class="lt-group-arrow">→</div>
-    </div>
-  `).join('');
-
-  const saveBtn = _ltIsSaved
-    ? `<button class="lt-cloud-btn lt-cloud-saved" disabled>☁ Đã lưu lên cloud</button>`
-    : `<button class="lt-cloud-btn lt-cloud-save" id="ltSaveBtn" onclick="_ltSaveToFirebase()">☁ Lưu bài tập lên cloud</button>`;
-
-  body.innerHTML = `
-    <div class="lt-menu">
-      <div class="lt-menu-toolbar">
-        <div>
-          <div class="lt-menu-title">Chọn nhóm từ để luyện tập</div>
-          <div class="lt-menu-sub">${_ltGroups.length} nhóm · ${_ltWords.length} từ đang học</div>
-        </div>
-        ${saveBtn}
-      </div>
-      <div class="lt-group-list">${groupCards}</div>
-    </div>
-  `;
-}
-
-function _ltStartGroup(groupIdx) {
-  _ltCurrentGroup = groupIdx;
-  _ltCurrentEx = 0;
-  _ltScore = 0;
-  _ltTotal = 0;
-  _ltFillDone = 0;
-  _ltFillCorrect = 0;
-  const g = _ltGroups[groupIdx];
-  const body = document.getElementById('ltBody');
-
-  // Hiện đoạn văn trước
-  body.innerHTML = `
-    <div class="lt-passage-screen">
-      <div class="lt-passage-header">
-        <button class="lt-back-btn" onclick="_ltRenderGroupMenu()">← Quay lại</button>
-        <div class="lt-passage-theme">${g.theme}</div>
-      </div>
-      <div class="lt-passage-words">
-        ${g.words.map(w => {
-          const wd = _ltWords.find(x => x.word === w);
-          return `<span class="lt-word-chip">${w}${wd?.phonetics?` <em>/${wd.phonetics}/</em>`:''}</span>`;
-        }).join('')}
-      </div>
-      <div class="lt-passage-box">
-        <div class="lt-passage-label">📖 Đoạn văn</div>
-        <div class="lt-passage-text">${_ltHighlight(g.passage, g.words)}</div>
-        <div class="lt-passage-vi">${g.passage_vi}</div>
-      </div>
-      <button class="lt-start-ex-btn" onclick="_ltRenderExercise(${groupIdx}, 0)">
-        Bắt đầu luyện tập →
-      </button>
-    </div>
-  `;
-}
-
-function _ltHighlight(text, words) {
-  let result = text;
-  words.forEach(w => {
-    const re = new RegExp('\\b(' + w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')\\b', 'gi');
-    result = result.replace(re, '<mark class="lt-highlight">$1</mark>');
-  });
-  return result;
-}
-
-// Thứ tự bài tập
-const _ltExOrder = ['mcq', 'match', 'fill', 'order'];
-const _ltExNames = { mcq: '📝 Trắc Nghiệm', match: '🔗 Nối Từ', fill: '✏️ Điền Từ', order: '🔀 Sắp Xếp Câu' };
-
-function _ltRenderExercise(groupIdx, exIdx) {
-  // Hết bài tập → kết quả
-  if (exIdx === -1 || exIdx >= _ltExOrder.length) {
-    _ltRenderGroupResult(groupIdx);
-    return;
+  } else if (type === 'order') {
+    if (!gs._orderState) gs._orderState = {};
+    (data.questions||[]).forEach((q, i) => {
+      const key = `ord_${i}`; if (!gs._orderState[key]) gs._orderState[key] = { placed:[], remaining:[...q.shuffled] };
+      const os = gs._orderState[key]; const answered = gs.exAnswers[key] !== undefined;
+      html += `<div class="lt-q-block"><div class="lt-q-num">CÂU ${i+1} — Sắp xếp thành câu đúng</div><div class="lt-order-words">${os.remaining.map((w,wi) => `<span class="lt-order-word" onclick="_ltPlaceWord(${gi},'${key}',${wi},'${_ltEsc(w)}')">${h(w)}</span>`).join('')}</div><div class="lt-order-result ${answered?(gs.exAnswers[key]?'correct':'wrong'):''}">${os.placed.length?os.placed.map((w,wi) => `<span class="lt-order-placed" onclick="_ltUnplaceWord(${gi},'${key}',${wi})">${h(w)}</span>`).join(''):'<span style="color:rgba(255,255,255,0.3);font-size:0.75rem">Nhấn vào từ để sắp xếp...</span>'}</div>${os.placed.length>0&&!answered?`<button class="lt-start-btn" style="font-size:0.7rem;padding:7px 16px;margin-top:10px" onclick="_ltSubmitOrder(${gi},'${key}','${_ltEsc(q.correct)}')">✓ Kiểm tra</button>`:''}${answered?`<div class="lt-feedback ${gs.exAnswers[key]?'correct':'wrong'}">${gs.exAnswers[key]?'✓ Chính xác!':'✗ Sai. Đáp án: '+h(q.correct)}</div>`:''}</div>`;
+    });
   }
 
-  _ltCurrentGroup = groupIdx;
-  _ltCurrentEx = exIdx;
-  const g = _ltGroups[groupIdx];
-  const exType = _ltExOrder[exIdx];
-  const ex = g.exercises[exType];
-  const body = document.getElementById('ltBody');
-
-  if (!ex || !ex.length) {
-    // Bỏ qua loại bài này nếu rỗng
-    _ltRenderExercise(groupIdx, exIdx + 1);
-    return;
-  }
-
-  const progress = `${exIdx + 1} / ${_ltExOrder.length}`;
-  let content = '';
-
-  if (exType === 'mcq') content = _ltBuildMCQ(ex, groupIdx, exIdx);
-  else if (exType === 'match') content = _ltBuildMatch(ex, groupIdx, exIdx);
-  else if (exType === 'fill') content = _ltBuildFill(ex, groupIdx, exIdx);
-  else if (exType === 'order') content = _ltBuildOrder(ex, groupIdx, exIdx);
-
-  body.innerHTML = `
-    <div class="lt-exercise-screen">
-      <div class="lt-ex-header">
-        <button class="lt-back-btn" onclick="_ltStartGroup(${groupIdx})">← Đoạn văn</button>
-        <div class="lt-ex-progress-wrap">
-          <div class="lt-ex-type-label">${_ltExNames[exType]}</div>
-          <div class="lt-ex-progress">${progress}</div>
-        </div>
-      </div>
-      <div class="lt-ex-progress-bar">
-        <div class="lt-ex-progress-fill" style="width:${(exIdx/(_ltExOrder.length))*100}%"></div>
-      </div>
-      <div id="ltExContent">${content}</div>
-    </div>
-  `;
-
-  // Init sau khi render
-  if (exType === 'match') _ltInitMatch(ex);
-  if (exType === 'order') _ltInitOrder(ex);
-  if (exType === 'mcq') setTimeout(() => _ltInitMCQ(ex, groupIdx, exIdx), 50);
+  html += '</div>';
+  container.innerHTML = html;
 }
 
-// ── MCQ ──
-function _ltBuildMCQ(questions, gi, ei) {
-  return `
-    <div class="lt-mcq">
-      <div class="lt-mcq-count" id="ltMcqCount">Câu 1 / ${questions.length}</div>
-      <div id="ltMcqContainer"></div>
-      <div id="ltMcqScore" class="lt-score-row" style="display:none"></div>
-      <button class="lt-next-ex-btn" id="ltMcqNext" style="display:none"
-        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
-        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
-      </button>
-    </div>
-  `;
+// ── Answer handlers ──
+function _ltAnswerMC(gi, key, chosen, correct) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  gs.exAnswers[key] = chosen; _ltRegScore(gi, chosen === correct);
+  _ltRenderExercise(gi, gs.currentExType, gs.exercises[gs.currentExType]);
 }
-
-// Render MCQ sau khi DOM ready
-function _ltInitMCQ(questions, gi, ei) {
-  let current = 0, correct = 0;
-
-  function showQ(idx) {
-    const q = questions[idx];
-    const container = document.getElementById('ltMcqContainer');
-    document.getElementById('ltMcqCount').textContent = `Câu ${idx+1} / ${questions.length}`;
-    container.innerHTML = `
-      <div class="lt-mcq-question">${q.q}</div>
-      <div class="lt-mcq-opts">
-        ${q.opts.map((opt, i) => `
-          <button class="lt-mcq-opt" onclick="_ltMcqAnswer(this,${i},${q.ans},${idx},${questions.length})" data-idx="${i}">
-            <span class="lt-opt-letter">${['A','B','C','D'][i]}</span>
-            <span>${opt}</span>
-          </button>
-        `).join('')}
-      </div>
-    `;
-  }
-  showQ(0);
-
-  window._ltMcqState = { current:0, correct:0, questions, gi, ei, showQ };
+function _ltAnswerTF(gi, key, chosen, correct) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  gs.exAnswers[key] = chosen; _ltRegScore(gi, chosen === correct);
+  _ltRenderExercise(gi, gs.currentExType, gs.exercises[gs.currentExType]);
 }
-
-window._ltMcqAnswer = function(btn, chosen, correct, qIdx, total) {
-  const state = window._ltMcqState;
-  if (!state) return;
-  const opts = document.querySelectorAll('.lt-mcq-opt');
-  opts.forEach(b => b.disabled = true);
-  opts[correct].classList.add('correct');
-  if (chosen !== correct) { btn.classList.add('wrong'); }
-  else { state.correct++; }
-
-  setTimeout(() => {
-    if (qIdx + 1 < total) {
-      state.current++;
-      state.showQ(state.current);
-    } else {
-      // Hiện kết quả MCQ
-      document.getElementById('ltMcqScore').style.display = 'flex';
-      document.getElementById('ltMcqScore').innerHTML = `
-        <span>Kết quả:</span>
-        <strong style="color:var(--neon-green)">${state.correct}/${total}</strong>
-        <span>câu đúng</span>`;
-      document.getElementById('ltMcqNext').style.display = 'block';
-      _ltScore += state.correct;
-      _ltTotal += total;
-    }
-  }, 900);
-};
-
-// ── MATCH ──
-function _ltBuildMatch(pairs, gi, ei) {
-  const shuffledMeanings = [...pairs].sort(() => Math.random() - 0.5);
-  return `
-    <div class="lt-match">
-      <div class="lt-match-instruction">Nhấp vào một từ, rồi nhấp vào nghĩa tương ứng</div>
-      <div class="lt-match-area">
-        <div class="lt-match-col" id="ltMatchWords">
-          ${pairs.map((p,i) => `<div class="lt-match-item lt-match-word" data-word="${p.word}" data-idx="${i}" onclick="_ltMatchSelect(this,'word')">${p.word}</div>`).join('')}
-        </div>
-        <div class="lt-match-col" id="ltMatchMeanings">
-          ${shuffledMeanings.map((p,i) => `<div class="lt-match-item lt-match-meaning" data-word="${p.word}" onclick="_ltMatchSelect(this,'meaning')">${p.meaning}</div>`).join('')}
-        </div>
-      </div>
-      <div id="ltMatchResult" class="lt-score-row" style="display:none"></div>
-      <button class="lt-next-ex-btn" id="ltMatchNext" style="display:none"
-        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
-        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
-      </button>
-    </div>
-  `;
+function _ltSelectMatch(gi, id, word, meaning) {
+  const gs = _ltGroupStates[gi]; const ms = gs._matchState; if (!ms) return;
+  if (ms.matched[id] && ms.matched[id].correct) return;
+  if (!ms.selected) { ms.selected = id; _ltRenderExercise(gi, 'match', gs.exercises['match']); return; }
+  const prevId = ms.selected; const prevIsMw = prevId.startsWith('w'); const isMw = id.startsWith('w');
+  if (prevId === id) { ms.selected = null; _ltRenderExercise(gi, 'match', gs.exercises['match']); return; }
+  if (prevIsMw === isMw) { ms.selected = id; _ltRenderExercise(gi, 'match', gs.exercises['match']); return; }
+  const pairs = gs.exercises['match'].pairs; const shuffled = ms.shuffledMeanings;
+  let wIdx, mIdx;
+  if (isMw) { wIdx = parseInt(id.slice(1)); mIdx = parseInt(prevId.slice(1)); } else { mIdx = parseInt(id.slice(1)); wIdx = parseInt(prevId.slice(1)); }
+  const correct = pairs[wIdx].meaning === shuffled[mIdx].meaning;
+  ms.matched[`w${wIdx}`] = { correct }; ms.matched[`m${mIdx}`] = { correct }; ms.selected = null;
+  _ltRegScore(gi, correct);
+  _ltRenderExercise(gi, 'match', gs.exercises['match']);
+  if (!correct) { setTimeout(() => { delete ms.matched[`w${wIdx}`]; delete ms.matched[`m${mIdx}`]; _ltRenderExercise(gi, 'match', gs.exercises['match']); }, 900); }
 }
-
-function _ltInitMatch(pairs) {
-  window._ltMatchState = { selected: null, selectedType: null, correct: 0, done: 0, total: pairs.length };
+function _ltFillBlank(gi, key, word, answer) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  if (!gs._fibFilled) gs._fibFilled = {};
+  gs._fibFilled[key] = word; _ltRenderExercise(gi, 'fib', gs.exercises['fib']);
 }
-
-window._ltMatchSelect = function(el, type) {
-  const state = window._ltMatchState;
-  if (!state || el.classList.contains('matched') || el.classList.contains('wrong-match')) return;
-
-  if (!state.selected) {
-    document.querySelectorAll('.lt-match-item').forEach(x => x.classList.remove('selected'));
-    el.classList.add('selected');
-    state.selected = el;
-    state.selectedType = type;
-  } else {
-    if (state.selectedType === type) {
-      // Chọn cùng loại → đổi selection
-      document.querySelectorAll('.lt-match-item').forEach(x => x.classList.remove('selected'));
-      el.classList.add('selected');
-      state.selected = el;
-      state.selectedType = type;
-      return;
-    }
-
-    // Xác định wordEl và meaningEl
-    const wordEl    = type === 'word'    ? el : state.selected;
-    const meaningEl = type === 'meaning' ? el : state.selected;
-
-    // Dùng data-word để tránh lỗi với textContent
-    const wordKey = wordEl.dataset.word;
-    // meaning item có data-word = từ tương ứng
-    const isCorrect = meaningEl.dataset.word === wordKey;
-
-    wordEl.classList.remove('selected');
-    meaningEl.classList.remove('selected');
-    state.selected = null;
-
-    if (isCorrect) {
-      wordEl.classList.add('matched');
-      meaningEl.classList.add('matched');
-      state.correct++;
-    } else {
-      wordEl.classList.add('wrong-match');
-      meaningEl.classList.add('wrong-match');
-      setTimeout(() => {
-        wordEl.classList.remove('wrong-match');
-        meaningEl.classList.remove('wrong-match');
-      }, 700);
-    }
-
-    state.done++;
-
-    if (state.correct === state.total) {
-      document.getElementById('ltMatchResult').style.display = 'flex';
-      document.getElementById('ltMatchResult').innerHTML =
-        `<span>Nối đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${state.total}</strong>`;
-      document.getElementById('ltMatchNext').style.display = 'block';
-      _ltScore += state.correct;
-      _ltTotal += state.total;
-    }
-  }
-};
-
-// ── FILL IN THE BLANK ──
-function _ltBuildFill(items, gi, ei) {
-  return `
-    <div class="lt-fill">
-      <div class="lt-fill-instruction">Điền từ thích hợp vào chỗ trống</div>
-      ${items.map((item, i) => `
-        <div class="lt-fill-item" id="ltFillItem${i}">
-          <div class="lt-fill-sentence">${item.sentence.replace('___', `<input class="lt-fill-input" id="ltFillInput${i}" placeholder="..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`)}</div>
-          <div class="lt-fill-hint">💡 ${item.hint}</div>
-          <div class="lt-fill-feedback" id="ltFillFb${i}"></div>
-          <button class="lt-fill-check" onclick="_ltCheckFill(${i},'${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">Kiểm tra</button>
-        </div>
-      `).join('')}
-      <div id="ltFillScore" class="lt-score-row" style="display:none"></div>
-      <button class="lt-next-ex-btn" id="ltFillNext" style="display:none"
-        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
-        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
-      </button>
-    </div>
-  `;
+function _ltClearFib(gi, key) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  if (gs._fibFilled) delete gs._fibFilled[key]; _ltRenderExercise(gi, 'fib', gs.exercises['fib']);
 }
-
-let _ltFillDone = 0, _ltFillCorrect = 0;
-window._ltCheckFill = function(idx, answer, total, gi, ei) {
-  const input = document.getElementById(`ltFillInput${idx}`);
-  const fb = document.getElementById(`ltFillFb${idx}`);
-  const btn = document.querySelector(`#ltFillItem${idx} .lt-fill-check`);
-  if (!input || btn.disabled) return;
-
-  const val = input.value.trim().toLowerCase();
-  const correct = answer.toLowerCase();
-  btn.disabled = true;
-  input.disabled = true;
-
-  if (val === correct) {
-    fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
-    input.classList.add('fill-correct');
-    _ltFillCorrect++;
-  } else {
-    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Đáp án: <strong>${answer}</strong></span>`;
-    input.classList.add('fill-wrong');
-  }
-
-  _ltFillDone++;
-  if (_ltFillDone >= total) {
-    document.getElementById('ltFillScore').style.display = 'flex';
-    document.getElementById('ltFillScore').innerHTML =
-      `<span>Điền đúng:</span><strong style="color:var(--neon-green)">${_ltFillCorrect}/${total}</strong>`;
-    document.getElementById('ltFillNext').style.display = 'block';
-    _ltScore += _ltFillCorrect;
-    _ltTotal += total;
-    _ltFillDone = 0; _ltFillCorrect = 0;
-  }
-};
-
-// ── ORDER WORDS ──
-function _ltBuildOrder(items, gi, ei) {
-  return `
-    <div class="lt-order">
-      <div class="lt-order-instruction">Sắp xếp các từ thành câu hoàn chỉnh — nhấn <strong>Kiểm tra</strong> sau khi xong</div>
-      ${items.map((item, i) => {
-        const shuffled = [...item.words].sort(() => Math.random() - 0.5);
-        return `
-          <div class="lt-order-item" id="ltOrderItem${i}">
-            <div class="lt-order-drop" id="ltOrderDrop${i}"></div>
-            <div class="lt-order-pool" id="ltOrderPool${i}">
-              ${shuffled.map(w => `<button class="lt-order-word" data-word="${w.replace(/"/g,'&quot;')}" onclick="_ltOrderPickWord(this,${i})">${w}</button>`).join('')}
-            </div>
-            <div class="lt-order-actions-row">
-              <button class="lt-order-reset-btn" onclick="_ltOrderReset(${i})">↺ Xóa</button>
-              <button class="lt-order-check-btn" id="ltOrderCheck${i}"
-                onclick="_ltOrderCheck(${i},'${item.answer.replace(/'/g,"\\'")}',${items.length},${gi},${ei})">
-                ✓ Kiểm tra
-              </button>
-            </div>
-            <div class="lt-order-feedback" id="ltOrderFb${i}"></div>
-          </div>`;
-      }).join('')}
-      <div id="ltOrderScore" class="lt-score-row" style="display:none"></div>
-      <button class="lt-next-ex-btn" id="ltOrderNext" style="display:none"
-        onclick="_ltRenderExercise(${gi}, ${ei+1} < ${_ltExOrder.length} ? ${ei+1} : -1)">
-        ${ei + 1 < _ltExOrder.length ? 'Bài tiếp theo →' : '🎉 Xem kết quả'}
-      </button>
-    </div>
-  `;
+function _ltSubmitFib(gi, key, answer) {
+  const gs = _ltGroupStates[gi]; if (!gs._fibFilled || !gs._fibFilled[key]) return;
+  gs.exAnswers[key] = gs._fibFilled[key]; _ltRegScore(gi, gs._fibFilled[key].toLowerCase() === answer.toLowerCase());
+  _ltRenderExercise(gi, 'fib', gs.exercises['fib']);
 }
-
-function _ltInitOrder(items) {
-  window._ltOrderState = { done: 0, correct: 0, total: items.length, checked: new Set() };
+function _ltPlaceWord(gi, key, idx, word) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  const os = gs._orderState[key]; os.placed.push(word); os.remaining.splice(idx, 1);
+  _ltRenderExercise(gi, 'order', gs.exercises['order']);
 }
-
-// Click từ trong pool → thêm vào drop
-window._ltOrderPickWord = function(btn, itemIdx) {
-  if (btn.classList.contains('used') || btn.disabled) return;
-  btn.classList.add('used');
-  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
-  const chip = document.createElement('span');
-  chip.className = 'lt-order-chip';
-  chip.textContent = btn.dataset.word;
-  // Click chip → trả về pool
-  chip.onclick = () => {
-    const fb = document.getElementById(`ltOrderFb${itemIdx}`);
-    if (btn.disabled) return; // đã kiểm tra rồi
-    chip.remove();
-    btn.classList.remove('used');
-    fb.innerHTML = ''; // xóa feedback cũ khi sửa
-  };
-  drop.appendChild(chip);
-};
-
-// Reset 1 câu
-window._ltOrderReset = function(itemIdx) {
-  const state = window._ltOrderState;
-  if (state && state.checked.has(itemIdx)) return; // đã kiểm tra rồi
-  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
-  const pool = document.getElementById(`ltOrderPool${itemIdx}`);
-  drop.innerHTML = '';
-  pool.querySelectorAll('.lt-order-word').forEach(b => b.classList.remove('used'));
-  document.getElementById(`ltOrderFb${itemIdx}`).innerHTML = '';
-};
-
-// Kiểm tra 1 câu khi nhấn nút
-window._ltOrderCheck = function(itemIdx, answer, total, gi, ei) {
-  const state = window._ltOrderState;
-  if (!state || state.checked.has(itemIdx)) return;
-
-  const drop = document.getElementById(`ltOrderDrop${itemIdx}`);
-  const chips = Array.from(drop.querySelectorAll('.lt-order-chip'));
-  if (!chips.length) {
-    document.getElementById(`ltOrderFb${itemIdx}`).innerHTML =
-      `<span class="lt-fb-wrong">⚠ Chưa xếp từ nào!</span>`;
-    return;
-  }
-
-  // Lock lại
-  state.checked.add(itemIdx);
-  const pool = document.getElementById(`ltOrderPool${itemIdx}`);
-  pool.querySelectorAll('.lt-order-word').forEach(b => { b.disabled = true; b.classList.add('used'); });
-  chips.forEach(c => { c.style.cursor = 'default'; c.onclick = null; });
-  document.getElementById(`ltOrderCheck${itemIdx}`).disabled = true;
-  document.getElementById(`ltOrderCheck${itemIdx}`).style.opacity = '0.4';
-
-  // So sánh — normalize khoảng trắng, bỏ dấu chấm cuối
-  const built  = chips.map(c => c.textContent.trim()).join(' ').toLowerCase().replace(/[.,!?]+$/, '').trim();
-  const expect = answer.toLowerCase().replace(/[.,!?]+$/, '').trim();
-
-  const fb = document.getElementById(`ltOrderFb${itemIdx}`);
-  if (built === expect) {
-    fb.innerHTML = `<span class="lt-fb-correct">✓ Đúng rồi!</span>`;
-    drop.style.borderColor = 'rgba(57,255,20,0.4)';
-    state.correct++;
-  } else {
-    fb.innerHTML = `<span class="lt-fb-wrong">✕ Sai — Câu đúng: <em>${answer}</em></span>`;
-    drop.style.borderColor = 'rgba(255,0,110,0.4)';
-  }
-
-  state.done++;
-  if (state.done >= total) {
-    document.getElementById('ltOrderScore').style.display = 'flex';
-    document.getElementById('ltOrderScore').innerHTML =
-      `<span>Đúng:</span><strong style="color:var(--neon-green)">${state.correct}/${total}</strong>`;
-    document.getElementById('ltOrderNext').style.display = 'block';
-    _ltScore += state.correct;
-    _ltTotal += total;
-  }
-};
-
-// ── Kết quả nhóm ──
-function _ltRenderGroupResult(groupIdx) {
-  const body = document.getElementById('ltBody');
-  const pct = _ltTotal ? Math.round(_ltScore / _ltTotal * 100) : 0;
-  const emoji = pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪';
-  body.innerHTML = `
-    <div class="lt-result">
-      <div class="lt-result-icon">${emoji}</div>
-      <div class="lt-result-title">Hoàn thành nhóm!</div>
-      <div class="lt-result-score">${_ltScore}<span>/${_ltTotal}</span></div>
-      <div class="lt-result-pct">${pct}% chính xác</div>
-      <div class="lt-result-actions">
-        <button class="lt-result-btn" onclick="_ltRenderGroupMenu()">← Chọn nhóm khác</button>
-        <button class="lt-result-btn primary" onclick="closeLuyenTap()">✓ Xong</button>
-      </div>
-    </div>
-  `;
+function _ltUnplaceWord(gi, key, idx) {
+  const gs = _ltGroupStates[gi]; if (gs.exAnswers[key] !== undefined) return;
+  const os = gs._orderState[key]; os.remaining.push(os.placed.splice(idx, 1)[0]);
+  _ltRenderExercise(gi, 'order', gs.exercises['order']);
 }
-
-
+function _ltSubmitOrder(gi, key, correct) {
+  const gs = _ltGroupStates[gi]; const os = gs._orderState[key];
+  const isCorrect = os.placed.join(' ').toLowerCase().trim() === correct.toLowerCase().trim();
+  gs.exAnswers[key] = isCorrect; _ltRegScore(gi, isCorrect);
+  _ltRenderExercise(gi, 'order', gs.exercises['order']);
+}
+function _ltRegScore(gi, correct) {
+  const gs = _ltGroupStates[gi]; gs.exScore.total++; if (correct) gs.exScore.correct++;
+  _ltUpdateScore(gi);
+}
+function _ltUpdateScore(gi) {
+  const gs = _ltGroupStates[gi]; const pct = gs.exScore.total ? Math.round(gs.exScore.correct / gs.exScore.total * 100) : 0;
+  const numEl = document.getElementById(`ltScoreNum-${gi}`);
+  const detEl = document.getElementById(`ltScoreDetail-${gi}`);
+  const fillEl = document.getElementById(`ltScoreFill-${gi}`);
+  if (numEl) numEl.textContent = pct + '%';
+  if (detEl) detEl.textContent = `${gs.exScore.correct}/${gs.exScore.total} câu đúng`;
+  if (fillEl) fillEl.style.width = pct + '%';
+}
+function _ltResetExercise(gi) {
+  const gs = _ltGroupStates[gi];
+  gs.exercises = {}; gs.exAnswers = {}; gs.exScore = { correct:0, total:0 };
+  gs._matchState = null; gs._fibFilled = null; gs._orderState = null; gs.currentExType = 'mc';
+  _ltLoadExercisePanel(gi);
+}
 
