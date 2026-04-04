@@ -217,24 +217,20 @@ async function openRootWord(wordObj) {
 
 async function fetchRootWord(word, apiKey) {
   const prompt = `Gốc của từ: ${word}. Chỉ trả về JSON, không giải thích thêm: {"cauTao":"...","lichSu":"...","meoNhoR":"..."}`;
-  const res = await fetch(`${API_BASE_URL}/messages`, {
+  console.log('[RootWord] API Key length:', apiKey.length, '| first 8:', apiKey.slice(0,8));
+  const res = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ model: 'claude-sonnet-4.6', max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
   });
   if (!res.ok) {
+    const errBody = await res.text().catch(()=>'');
+    console.error('[RootWord] Error:', res.status, errBody);
     if (res.status === 401) throw new Error('API Key không hợp lệ (401)');
     throw new Error(`Lỗi server ${res.status}`);
   }
   const data = await res.json();
-  let rawText = '';
-  if (Array.isArray(data.content)) rawText = data.content.map(b => b.text || '').join('');
-  else if (typeof data.content === 'string') rawText = data.content;
+  let rawText = data.choices?.[0]?.message?.content || '';
   const clean = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
   try { return JSON.parse(jsonMatch ? jsonMatch[0] : clean); }
