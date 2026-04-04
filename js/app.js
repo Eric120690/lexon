@@ -2,6 +2,7 @@
 //  ADMIN CONFIG — ĐỔI EMAIL NÀY THÀNH EMAIL ADMIN CỦA BẠN
 // ============================================================
 window.ADMIN_EMAIL = 'ongchuexcel@gmail.com'; // Admin cố định
+const API_BASE_URL = 'https://llm.chiasegpu.vn/v1';
 
 // ============================================================
 //  STATE & STORAGE
@@ -3869,12 +3870,12 @@ async function _ltPullFromFirebase() {
 }
 
 async function _ltGenerate() {
-  const apiKey = getMavisApiKey();
+  const apiKey = getApiKey();
   if (!apiKey) {
     document.getElementById('ltBody').innerHTML = `
       <div class="lt-error">
         <div style="font-size:2rem">🔑</div>
-        <div>Chưa có API Key. Admin cần cài đặt MAVIS API Key trong Admin Panel.</div>
+        <div>Chưa có API Key. Admin cần cài đặt API Key trong Admin Panel.</div>
         <button class="lt-retry-btn" onclick="closeLuyenTap()">Đóng</button>
       </div>`;
     return;
@@ -3937,15 +3938,14 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
 }`;
 
   try {
-    const res = await fetch(`${MAVIS_BASE_URL}/v1/messages`, {
+    const res = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
+        'Authorization': 'Bearer ' + apiKey
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4.6',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -3953,15 +3953,11 @@ Trả về JSON hợp lệ, không có gì khác ngoài JSON:
 
     if (!res.ok) {
       if (res.status === 401) throw new Error('API Key không hợp lệ');
-      if (res.status === 402) throw new Error('Hết quota MAVIS');
       throw new Error(`Lỗi server ${res.status}`);
     }
 
     const data = await res.json();
-    let text = '';
-    if (Array.isArray(data.content)) text = data.content.map(b => b.text || '').join('');
-    else if (typeof data.content === 'string') text = data.content;
-    else if (data.choices) text = data.choices?.[0]?.message?.content || '';
+    let text = data.choices?.[0]?.message?.content || '';
 
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
