@@ -167,7 +167,6 @@ async function processCtxFile(file) {
 // ============================================================
 //  ROOT WORD FEATURE
 // ============================================================
-const API_BASE_URL = 'https://llm.chiasegpu.vn/v1';
 const ROOTWORD_CACHE = {};
 
 function getApiKey() { return _mavisApiKey || ''; }
