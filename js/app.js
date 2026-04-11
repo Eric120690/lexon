@@ -4115,14 +4115,17 @@ window.onYouglishAPIReady = function() {
   }
 };
 
+let _ygViews = 0, _ygCurTrack = 0, _ygTotalTracks = 0;
+
 function _ygCreateWidget(word) {
   // Xóa widget cũ nếu có
   const container = document.getElementById('ygWidgetContainer');
   container.innerHTML = '<div id="ygWidget"></div>';
+  _ygViews = 0; _ygCurTrack = 0; _ygTotalTracks = 0;
 
   _ygWidget = new YG.Widget('ygWidget', {
     width: 540,
-    components: 8 + 64, // caption + control buttons only (gọn nhất)
+    components: 8, // caption only — gọn nhất, play đoạn ngắn chứa từ
     autoStart: 1,
     restrictionMode: 0,
     backgroundColor: '#0d0d1f',
@@ -4136,6 +4139,7 @@ function _ygCreateWidget(word) {
     events: {
       'onFetchDone': _ygOnFetchDone,
       'onVideoChange': _ygOnVideoChange,
+      'onCaptionConsumed': _ygOnCaptionConsumed,
     }
   });
   _ygWidget.fetch(word, 'english');
@@ -4148,14 +4152,33 @@ function _ygOnFetchDone(event) {
     info.textContent = 'Không tìm thấy video nào cho từ này.';
     controls.style.display = 'none';
   } else {
+    _ygTotalTracks = event.totalResult;
     info.textContent = `Tìm thấy ${event.totalResult} video`;
     controls.style.display = 'flex';
   }
 }
 
 function _ygOnVideoChange(event) {
+  _ygCurTrack = event.trackNumber;
+  _ygViews = 0;
   const info = document.getElementById('ygInfo');
-  info.textContent = `Video ${event.trackNumber + 1}`;
+  info.textContent = `Video ${_ygCurTrack + 1} / ${_ygTotalTracks} — lần phát 1/3`;
+}
+
+function _ygOnCaptionConsumed(event) {
+  _ygViews++;
+  const info = document.getElementById('ygInfo');
+  if (_ygViews < 3) {
+    info.textContent = `Video ${_ygCurTrack + 1} / ${_ygTotalTracks} — lần phát ${_ygViews + 1}/3`;
+    _ygWidget.replay();
+  } else {
+    if (_ygCurTrack < _ygTotalTracks - 1) {
+      info.textContent = `Chuyển sang video tiếp theo...`;
+      _ygWidget.next();
+    } else {
+      info.textContent = `Đã xem hết tất cả video.`;
+    }
+  }
 }
 
 function closeYouGlish() {
