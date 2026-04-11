@@ -1041,6 +1041,7 @@ function renderFlashcard() {
           <button class="fc-root-btn" onclick="openRootWord(studyQueue[currentIndex]);event.stopPropagation()">🌱 Root word →</button>
           <button class="fc-yg-btn" onclick="openYouGlish(studyQueue[currentIndex].word);event.stopPropagation()">▶ YouGlish →</button>
         </div>
+        <div class="fc-face fc-back">
           <div class="fc-hint">${reversedMode ? 'Tiếng Anh' : 'Nghĩa tiếng Việt'}</div>
           ${reversedMode ? `
             <div class="fc-word">${h(c.word)}</div>
