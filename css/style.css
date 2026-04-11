@@ -2055,3 +2055,82 @@
     .lt-ex-tab { padding: 6px 10px; font-size: 0.6rem; }
   }
 
+
+  /* ============================================================
+     ▶ YOUGLISH
+     ============================================================ */
+  .fc-yg-btn {
+    display: block; width: 100%; margin-top: 6px; padding: 8px 14px;
+    background: rgba(255,230,0,0.06); border: 1px solid rgba(255,230,0,0.2);
+    border-radius: 10px; color: rgba(255,230,0,0.7); font-size: 0.7rem;
+    font-family: 'Space Mono', monospace; cursor: pointer; transition: all 0.15s;
+    text-align: center; letter-spacing: 0.04em;
+  }
+  .fc-yg-btn:hover { background: rgba(255,230,0,0.12); border-color: rgba(255,230,0,0.4); color: var(--neon-yellow); }
+
+  .yg-overlay {
+    position: fixed; inset: 0; z-index: 1500;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s;
+  }
+  .yg-overlay.show { opacity: 1; pointer-events: all; }
+
+  .yg-modal {
+    background: #0d0d1f; border: 1px solid rgba(255,230,0,0.2);
+    border-radius: 20px; width: 100%; max-width: 600px;
+    overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .yg-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .yg-title {
+    font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700;
+    letter-spacing: 0.08em; color: var(--neon-yellow);
+  }
+  .yg-title span { color: #fff; font-weight: 800; }
+  .yg-close {
+    width: 30px; height: 30px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1); background: transparent;
+    color: rgba(255,255,255,0.4); cursor: pointer; font-size: 0.9rem;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .yg-close:hover { background: rgba(255,0,110,0.1); color: var(--neon-pink); }
+
+  .yg-body { padding: 16px 20px; }
+
+  #ygWidgetContainer {
+    border-radius: 12px; overflow: hidden;
+    background: #0d0d1f; min-height: 200px;
+  }
+  /* Ẩn quảng cáo YouGlish nếu có */
+  #ygWidgetContainer iframe + div,
+  #ygWidgetContainer .yg-ad,
+  #ygWidgetContainer [class*="ad-"],
+  #ygWidgetContainer [id*="ad-"] { display: none !important; }
+
+  .yg-controls {
+    display: flex; gap: 8px; justify-content: center;
+    margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .yg-ctrl-btn {
+    padding: 8px 18px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.6); font-family: 'Space Mono', monospace;
+    font-size: 0.7rem; cursor: pointer; transition: all 0.15s;
+  }
+  .yg-ctrl-btn:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0,245,255,0.06); }
+
+  .yg-info {
+    text-align: center; margin-top: 10px;
+    font-size: 0.68rem; color: rgba(255,255,255,0.3);
+    font-family: 'Space Mono', monospace;
+  }
+
+  @media (max-width: 600px) {
+    .yg-modal { max-width: 100%; border-radius: 14px; }
+    #ygWidgetContainer { min-height: 160px; }
+  }
+
