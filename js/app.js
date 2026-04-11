@@ -1039,8 +1039,8 @@ function renderFlashcard() {
           ${c.example?`<div class="fc-example" style="margin-top:6px" onclick="event.stopPropagation()">🗣 ${h(c.example)}</div>`:''}
           <button class="fc-art-btn" onclick="openArtDrawer(studyQueue[currentIndex]);event.stopPropagation()">📰 xem ngữ cảnh báo chí →</button>
           <button class="fc-root-btn" onclick="openRootWord(studyQueue[currentIndex]);event.stopPropagation()">🌱 Root word →</button>
+          <button class="fc-yg-btn" onclick="openYouGlish(studyQueue[currentIndex].word);event.stopPropagation()">▶ YouGlish →</button>
         </div>
-        <div class="fc-face fc-back">
           <div class="fc-hint">${reversedMode ? 'Tiếng Anh' : 'Nghĩa tiếng Việt'}</div>
           ${reversedMode ? `
             <div class="fc-word">${h(c.word)}</div>
@@ -1068,6 +1068,7 @@ function renderFlashcard() {
           }
           <button class="fc-art-btn" onclick="openArtDrawer(studyQueue[currentIndex]);event.stopPropagation()">📰 xem ngữ cảnh báo chí →</button>
           <button class="fc-root-btn" onclick="openRootWord(studyQueue[currentIndex]);event.stopPropagation()">🌱 Root word →</button>
+          <button class="fc-yg-btn" onclick="openYouGlish(studyQueue[currentIndex].word);event.stopPropagation()">▶ YouGlish →</button>
         </div>
         <!-- Sizer: đẩy chiều cao theo nội dung thực của mặt front -->
         <div class="fc-sizer" aria-hidden="true">
@@ -4050,5 +4051,115 @@ function _ltResetExercise(gi) {
   gs.exercises = {}; gs.exAnswers = {}; gs.exScore = { correct:0, total:0 };
   gs._matchState = null; gs._fibFilled = null; gs._orderState = null; gs.currentExType = 'mc';
   _ltLoadExercisePanel(gi);
+}
+
+
+// ============================================================
+//  ▶ YOUGLISH WIDGET
+// ============================================================
+let _ygWidget = null;
+let _ygScriptLoaded = false;
+
+function openYouGlish(word) {
+  if (!word) return;
+
+  let overlay = document.getElementById('ygOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'ygOverlay';
+    overlay.className = 'yg-overlay';
+    overlay.onclick = function(e) { if (e.target === overlay) closeYouGlish(); };
+    overlay.innerHTML = `
+      <div class="yg-modal">
+        <div class="yg-header">
+          <div class="yg-title">▶ YouGlish — <span id="ygWord"></span></div>
+          <button class="yg-close" onclick="closeYouGlish()">✕</button>
+        </div>
+        <div class="yg-body">
+          <div id="ygWidgetContainer"></div>
+          <div class="yg-controls" id="ygControls" style="display:none">
+            <button class="yg-ctrl-btn" onclick="_ygWidget&&_ygWidget.previous()">⏮ Trước</button>
+            <button class="yg-ctrl-btn" onclick="_ygWidget&&_ygWidget.replay()">↺ Phát lại</button>
+            <button class="yg-ctrl-btn" onclick="_ygWidget&&_ygWidget.next()">Tiếp ⏭</button>
+          </div>
+          <div class="yg-info" id="ygInfo"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+
+  document.getElementById('ygWord').textContent = word;
+  document.getElementById('ygInfo').textContent = '';
+  document.getElementById('ygControls').style.display = 'none';
+  overlay.classList.add('show');
+
+  // Load YouGlish script nếu chưa có
+  if (!_ygScriptLoaded) {
+    _ygScriptLoaded = true;
+    const tag = document.createElement('script');
+    tag.src = 'https://youglish.com/public/emb/widget.js';
+    document.head.appendChild(tag);
+    // onYouglishAPIReady sẽ được gọi khi script load xong
+    window._ygPendingWord = word;
+  } else if (window.YG) {
+    _ygCreateWidget(word);
+  }
+}
+
+// Callback khi YouGlish script load xong
+window.onYouglishAPIReady = function() {
+  if (window._ygPendingWord) {
+    _ygCreateWidget(window._ygPendingWord);
+    window._ygPendingWord = null;
+  }
+};
+
+function _ygCreateWidget(word) {
+  // Xóa widget cũ nếu có
+  const container = document.getElementById('ygWidgetContainer');
+  container.innerHTML = '<div id="ygWidget"></div>';
+
+  _ygWidget = new YG.Widget('ygWidget', {
+    width: 540,
+    components: 8 + 64, // caption + control buttons only (gọn nhất)
+    autoStart: 1,
+    restrictionMode: 0,
+    backgroundColor: '#0d0d1f',
+    captionColor: '#00f5ff',
+    markerColor: '#ffe600',
+    queryColor: '#ff006e',
+    titleColor: '#ffffff',
+    textColor: '#7a7a90',
+    linkColor: '#00f5ff',
+    captionSize: 28,
+    events: {
+      'onFetchDone': _ygOnFetchDone,
+      'onVideoChange': _ygOnVideoChange,
+    }
+  });
+  _ygWidget.fetch(word, 'english');
+}
+
+function _ygOnFetchDone(event) {
+  const info = document.getElementById('ygInfo');
+  const controls = document.getElementById('ygControls');
+  if (event.totalResult === 0) {
+    info.textContent = 'Không tìm thấy video nào cho từ này.';
+    controls.style.display = 'none';
+  } else {
+    info.textContent = `Tìm thấy ${event.totalResult} video`;
+    controls.style.display = 'flex';
+  }
+}
+
+function _ygOnVideoChange(event) {
+  const info = document.getElementById('ygInfo');
+  info.textContent = `Video ${event.trackNumber + 1}`;
+}
+
+function closeYouGlish() {
+  const overlay = document.getElementById('ygOverlay');
+  if (overlay) overlay.classList.remove('show');
+  if (_ygWidget) { try { _ygWidget.pause(); } catch(e) {} }
 }
 
