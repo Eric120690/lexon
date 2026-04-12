@@ -297,6 +297,9 @@ async function renderPacksGrid() {
         <button class="btn-publish ${isPublished ? 'published' : ''}" onclick="togglePublish('${pack.id}',event)">
           ${isPublished ? '🌐 Đang public · Bấm để ẩn' : '📤 Publish cho học viên'}
         </button>
+        <button class="btn-dict ${_dictionaryPackId === pack.id ? 'active' : ''}" onclick="toggleDictPack('${pack.id}',event)">
+          ${_dictionaryPackId === pack.id ? '📚 Đang là CSDL ✓' : '📚 Dùng làm CSDL'}
+        </button>
         <div class="pin-toggle-wrap${isPinned ? ' active' : ''}" onclick="event.stopPropagation()">
           <label class="pin-toggle">
             <input type="checkbox" ${isPinned ? 'checked' : ''} onchange="togglePin('${pack.id}',this)">
@@ -3032,9 +3035,10 @@ function _getMilestones() {
 const XP_MILESTONES = _getMilestones();
 
 // Celebrate config — load từ Firestore appConfig, fallback về default
-let CELEBRATE_EVERY = 5;  // cứ N từ đã thuộc → chúc mừng
-let _mavisApiKey = '';  // load từ Firestore appConfig, chỉ admin mới set
-let _totalMasteredSession = 0; // đếm tổng từ đã thuộc trong session (kể cả reset)
+let CELEBRATE_EVERY = 5;
+let _mavisApiKey = '';
+let _dictionaryPackId = ''; // pack admin được chọn làm CSDL tra cứu
+let _totalMasteredSession = 0;
 
 async function _loadAppConfig() {
   try {
@@ -3052,6 +3056,7 @@ async function _loadAppConfig() {
       }
       if (d.celebrateEvery !== undefined) CELEBRATE_EVERY = d.celebrateEvery;
       if (d.mavisApiKey      !== undefined) _mavisApiKey      = d.mavisApiKey;
+      if (d.dictionaryPackId !== undefined) _dictionaryPackId = d.dictionaryPackId;
     }
   } catch(e) { console.warn('[AppConfig] load error', e); }
 }
@@ -4185,5 +4190,320 @@ function closeYouGlish() {
   const overlay = document.getElementById('ygOverlay');
   if (overlay) overlay.classList.remove('show');
   if (_ygWidget) { try { _ygWidget.pause(); } catch(e) {} }
+}
+
+
+// ============================================================
+//  📚 DICTIONARY PACK (Admin chọn pack làm CSDL)
+// ============================================================
+async function toggleDictPack(packId, e) {
+  if (e) e.stopPropagation();
+  if (!isAdmin()) return;
+  const isActive = _dictionaryPackId === packId;
+  _dictionaryPackId = isActive ? '' : packId;
+  try {
+    await window._setDoc(
+      window._doc(window._db, 'appConfig', 'scoring'),
+      { dictionaryPackId: _dictionaryPackId },
+      { merge: true }
+    );
+    renderPacksGrid();
+    showToast('success', isActive ? '📚 Đã bỏ CSDL' : '📚 Đã chọn làm CSDL');
+  } catch(e) { showToast('error', '✕ Lỗi: ' + e.message); }
+}
+
+// ============================================================
+//  ✂ SCAN & TẠO GÓI TỪ TỪ ĐOẠN VĂN
+// ============================================================
+let _scanSelectedWords = new Set();
+let _scanText = '';
+
+function openScanModal() {
+  _scanSelectedWords = new Set();
+  _scanText = '';
+
+  let overlay = document.getElementById('scanOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'scanOverlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.className = 'scan-overlay show';
+  overlay.innerHTML = `
+    <div class="scan-modal">
+      <div class="scan-header">
+        <div class="scan-title">✂ Tạo gói từ từ đoạn văn</div>
+        <button class="scan-close" onclick="closeScanModal()">✕</button>
+      </div>
+      <div class="scan-body" id="scanBody">
+        <div class="scan-step" id="scanStep1">
+          <div class="scan-label">Dán đoạn văn tiếng Anh vào đây</div>
+          <textarea class="scan-textarea" id="scanTextarea" placeholder="Paste your English text here..."></textarea>
+          <button class="scan-btn" onclick="_scanStart()">🔍 Scan</button>
+        </div>
+        <div class="scan-step" id="scanStep2" style="display:none"></div>
+        <div class="scan-step" id="scanStep3" style="display:none"></div>
+      </div>
+    </div>`;
+}
+
+function closeScanModal() {
+  const overlay = document.getElementById('scanOverlay');
+  if (overlay) overlay.classList.remove('show');
+}
+
+function _scanStart() {
+  const raw = document.getElementById('scanTextarea').value.trim();
+  if (!raw) { showToast('error', '⚠ Chưa nhập đoạn văn'); return; }
+  _scanText = raw;
+  _scanSelectedWords = new Set();
+
+  // Render đoạn văn thành từng từ clickable
+  const step2 = document.getElementById('scanStep2');
+  document.getElementById('scanStep1').style.display = 'none';
+  step2.style.display = 'block';
+
+  // Tách giữ nguyên khoảng trắng và dấu câu
+  const tokens = raw.split(/(\s+)/);
+
+  let wordsHtml = tokens.map((token, i) => {
+    if (/^\s+$/.test(token)) return token; // khoảng trắng
+    // Tách dấu câu đầu/cuối
+    const match = token.match(/^([^a-zA-Z]*)([a-zA-Z'-]+)([^a-zA-Z]*)$/);
+    if (!match) return h(token); // không phải từ
+    const pre = match[1], word = match[2], post = match[3];
+    return `${h(pre)}<span class="scan-word" data-word="${h(word.toLowerCase())}" onclick="_scanToggleWord(this)">${h(word)}</span>${h(post)}`;
+  }).join('');
+
+  step2.innerHTML = `
+    <div class="scan-label">Click vào các từ bạn chưa nhớ</div>
+    <div class="scan-text-display">${wordsHtml}</div>
+    <div class="scan-selected-bar">
+      <span>Đã chọn: <strong id="scanCount">0</strong> từ</span>
+      <button class="scan-btn" onclick="_scanFinish()">Tiếp tục →</button>
+    </div>
+    <div class="scan-selected-list" id="scanSelectedList"></div>`;
+}
+
+function _scanToggleWord(el) {
+  const word = el.dataset.word;
+  if (_scanSelectedWords.has(word)) {
+    _scanSelectedWords.delete(word);
+    // Bỏ highlight tất cả instance của từ này
+    document.querySelectorAll(`.scan-word[data-word="${word}"]`).forEach(e => e.classList.remove('selected'));
+  } else {
+    _scanSelectedWords.add(word);
+    document.querySelectorAll(`.scan-word[data-word="${word}"]`).forEach(e => e.classList.add('selected'));
+  }
+  document.getElementById('scanCount').textContent = _scanSelectedWords.size;
+  _scanRenderSelectedList();
+}
+
+function _scanRenderSelectedList() {
+  const el = document.getElementById('scanSelectedList');
+  if (!el) return;
+  const arr = [..._scanSelectedWords];
+  el.innerHTML = arr.map(w => `<span class="scan-chip">${h(w)} <span class="scan-chip-x" onclick="_scanRemoveWord('${w}')">✕</span></span>`).join('');
+}
+
+function _scanRemoveWord(word) {
+  _scanSelectedWords.delete(word);
+  document.querySelectorAll(`.scan-word[data-word="${word}"]`).forEach(e => e.classList.remove('selected'));
+  document.getElementById('scanCount').textContent = _scanSelectedWords.size;
+  _scanRenderSelectedList();
+}
+
+function _scanFinish() {
+  if (_scanSelectedWords.size === 0) { showToast('error', '⚠ Chưa chọn từ nào'); return; }
+  if (_scanSelectedWords.size > 50) {
+    showToast('error', `⚠ Quá nhiều từ (${_scanSelectedWords.size}/50). Bớt đi rồi thử lại.`);
+    return;
+  }
+
+  const step2 = document.getElementById('scanStep2');
+  const step3 = document.getElementById('scanStep3');
+  step2.style.display = 'none';
+  step3.style.display = 'block';
+  step3.innerHTML = `<div style="text-align:center;padding:30px"><div class="lt-spinner"></div><div style="margin-top:12px;color:rgba(255,255,255,0.5);font-size:0.78rem">Đang tra cứu ${_scanSelectedWords.size} từ trong CSDL...</div></div>`;
+
+  _scanLookup();
+}
+
+async function _scanLookup() {
+  const selectedArr = [..._scanSelectedWords];
+  const foundWords = []; // từ tìm thấy trong CSDL
+  const missingWords = []; // từ chưa có
+
+  // Load admin dictionary pack
+  let dictWords = [];
+  if (_dictionaryPackId) {
+    try {
+      const snap = await window._getDoc(window._doc(window._db, 'adminPacks', _dictionaryPackId));
+      if (snap.exists() && snap.data().words) {
+        dictWords = snap.data().words;
+      }
+    } catch(e) { console.warn('Load dict pack error:', e); }
+  }
+
+  // Check từng từ
+  const dictMap = {};
+  dictWords.forEach(w => { dictMap[(w.word||'').toLowerCase()] = w; });
+
+  selectedArr.forEach(word => {
+    const key = word.toLowerCase();
+    if (dictMap[key]) {
+      foundWords.push({ ...dictMap[key] });
+    } else {
+      missingWords.push(word);
+    }
+  });
+
+  _scanRenderStep3(foundWords, missingWords);
+}
+
+let _scanFoundWords = [];
+let _scanMissingWords = [];
+
+function _scanRenderStep3(found, missing) {
+  _scanFoundWords = found;
+  _scanMissingWords = [...missing];
+  const step3 = document.getElementById('scanStep3');
+
+  let html = `<div class="scan-label">Kết quả tra cứu</div>`;
+
+  html += `<div class="scan-result-row">
+    <div class="scan-result-stat found">✓ Tìm thấy: <strong>${found.length}</strong> từ trong CSDL</div>
+    <div class="scan-result-stat missing">✕ Chưa có: <strong>${missing.length}</strong> từ</div>
+  </div>`;
+
+  if (found.length) {
+    html += `<div class="scan-found-list">${found.map(w => `<span class="scan-chip found">${h(w.word)}</span>`).join('')}</div>`;
+  }
+  if (missing.length) {
+    html += `<div class="scan-missing-list">${missing.map(w => `<span class="scan-chip missing">${h(w)}</span>`).join('')}</div>`;
+  }
+
+  // Nhập tên gói
+  html += `<div class="scan-pack-name-row">
+    <input type="text" class="scan-pack-input" id="scanPackName" placeholder="Tên gói từ mới..." maxlength="50">
+  </div>`;
+
+  if (missing.length) {
+    html += `<div class="scan-ai-prompt">
+      <div>Còn <strong>${missing.length}</strong> từ chưa có trong CSDL.</div>
+      <div style="font-size:0.7rem;color:rgba(255,255,255,0.35);margin-top:4px">Dùng AI để tự động tạo thông tin cho các từ này?</div>
+      <button class="scan-btn ai" id="scanAiBtn" onclick="_scanGenerateAI()">🤖 Thêm bằng AI</button>
+    </div>`;
+  }
+
+  html += `<div class="scan-actions">
+    <button class="scan-btn save" onclick="_scanSavePack()">💾 Tạo gói từ (${found.length} từ)</button>
+    <button class="scan-btn cancel" onclick="closeScanModal()">✕ Hủy</button>
+  </div>`;
+  html += `<div id="scanAiProgress"></div>`;
+
+  step3.innerHTML = html;
+}
+
+async function _scanGenerateAI() {
+  if (!_scanMissingWords.length) return;
+  const apiKey = getApiKey();
+  if (!apiKey) { showToast('error', '⚠ Chưa có API Key'); return; }
+
+  const btn = document.getElementById('scanAiBtn');
+  const progress = document.getElementById('scanAiProgress');
+  btn.disabled = true;
+  btn.textContent = '⟳ Đang tạo...';
+
+  const batches = [];
+  for (let i = 0; i < _scanMissingWords.length; i += 20) {
+    batches.push(_scanMissingWords.slice(i, i + 20));
+  }
+
+  let generated = [];
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    progress.innerHTML = `<div style="text-align:center;padding:10px;font-size:0.72rem;color:rgba(255,255,255,0.4)">Lượt ${bi+1}/${batches.length} — đang tạo ${batch.length} từ...</div>`;
+
+    const prompt = `Bạn là từ điển tiếng Anh-Việt chuyên nghiệp. Tạo thông tin cho các từ sau:
+${batch.join(', ')}
+
+Trả về CHỈ JSON hợp lệ, không markdown:
+{"words":[{"word":"từ","meaning":"nghĩa tiếng Việt","phonetics":"phiên âm IPA","type":"loại từ (noun/verb/adj...)","level":"trình độ (A1-C2)","example":"câu ví dụ tiếng Anh","example_vi":"dịch câu ví dụ","description":"mô tả ngắn"}]}`;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'claude-sonnet-4.6', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
+      });
+      if (!res.ok) throw new Error(`Lỗi server ${res.status}`);
+      const data = await res.json();
+      let text = data.choices?.[0]?.message?.content || '';
+      let cleaned = text.trim().replace(/```json?\n?/g,'').replace(/```/g,'').trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.words) generated = generated.concat(parsed.words);
+    } catch(e) {
+      progress.innerHTML = `<div style="color:var(--neon-pink);font-size:0.72rem;padding:8px">✕ Lỗi lượt ${bi+1}: ${h(e.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = '🤖 Thử lại';
+      return;
+    }
+  }
+
+  // Merge vào foundWords
+  generated.forEach(w => {
+    _scanFoundWords.push({
+      word: w.word || '',
+      meaning: w.meaning || '',
+      phonetics: w.phonetics || '',
+      type: w.type || '',
+      level: w.level || '',
+      example: w.example || '',
+      example_vi: w.example_vi || '',
+      description: w.description || '',
+      mastered: false, hidden: false,
+    });
+  });
+
+  _scanMissingWords = [];
+  progress.innerHTML = `<div style="color:var(--neon-green);font-size:0.72rem;padding:8px">✓ Đã tạo xong ${generated.length} từ bằng AI</div>`;
+  btn.style.display = 'none';
+
+  // Cập nhật nút lưu
+  const saveBtn = document.querySelector('.scan-btn.save');
+  if (saveBtn) saveBtn.textContent = `💾 Tạo gói từ (${_scanFoundWords.length} từ)`;
+}
+
+async function _scanSavePack() {
+  if (!_scanFoundWords.length) { showToast('error', '⚠ Chưa có từ nào để tạo gói'); return; }
+  const name = document.getElementById('scanPackName')?.value.trim();
+  if (!name) { showToast('error', '⚠ Vui lòng nhập tên gói'); return; }
+
+  const newPack = { id: 'pack_' + Date.now(), name, desc: 'Tạo từ Scan', createdAt: Date.now() };
+  packs.push(newPack);
+
+  const wordsToSave = _scanFoundWords.map(w => ({
+    word: w.word || '', meaning: w.meaning || '', phonetics: w.phonetics || '',
+    description: w.description || '', example: w.example || '', example_vi: w.example_vi || '',
+    type: w.type || '', level: w.level || '', mastered: false, hidden: false,
+    art_source: '', art_url: '', art_ctx_vi: '', art_quote: '', art_quote_vi: '',
+  }));
+
+  // Lưu IDB + Firebase
+  await IDB.set(newPack.id, { words: wordsToSave, updatedAt: Date.now() }).catch(()=>{});
+  newPack._wordCount = wordsToSave.length;
+  newPack._masteredCount = 0;
+  await savePacks();
+
+  if (navigator.onLine) {
+    window._setDoc(packDoc(newPack.id),
+      { words: wordsToSave, name: newPack.name, desc: newPack.desc, updatedAt: Date.now() },
+      { merge: true }).catch(()=>{});
+  }
+
+  closeScanModal();
+  renderPacksGrid();
+  showToast('success', `✓ Đã tạo gói "${name}" với ${wordsToSave.length} từ`);
 }
 
