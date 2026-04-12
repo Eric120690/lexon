@@ -2134,3 +2134,162 @@
     #ygWidgetContainer { min-height: 160px; }
   }
 
+
+  /* ============================================================
+     ✂ SCAN & TẠO GÓI TỪ
+     ============================================================ */
+  .scan-overlay {
+    position: fixed; inset: 0; z-index: 1500;
+    background: rgba(0,0,0,0.88); backdrop-filter: blur(10px);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 20px; overflow-y: auto;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s;
+  }
+  .scan-overlay.show { opacity: 1; pointer-events: all; }
+
+  .scan-modal {
+    background: var(--dark2); border: 1px solid var(--glass-border);
+    border-radius: 22px; width: 100%; max-width: 720px;
+    margin-top: 20px; margin-bottom: 40px; overflow: hidden;
+  }
+  .scan-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 22px; border-bottom: 1px solid var(--glass-border);
+  }
+  .scan-title {
+    font-family: 'Syne', sans-serif; font-size: 0.82rem; font-weight: 800;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--neon-cyan);
+  }
+  .scan-close {
+    width: 32px; height: 32px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1); background: transparent;
+    color: rgba(255,255,255,0.4); cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .scan-close:hover { background: rgba(255,0,110,0.1); color: var(--neon-pink); }
+  .scan-body { padding: 22px; }
+  .scan-label {
+    font-family: 'Space Mono', monospace; font-size: 0.65rem; font-weight: 700;
+    letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.35);
+    margin-bottom: 12px;
+  }
+  .scan-textarea {
+    width: 100%; min-height: 180px; padding: 16px; border-radius: 14px;
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,0.03);
+    color: #fff; font-family: 'Inter', sans-serif; font-size: 0.85rem;
+    line-height: 1.8; resize: vertical; outline: none; transition: border-color 0.2s;
+  }
+  .scan-textarea:focus { border-color: var(--neon-cyan); }
+  .scan-textarea::placeholder { color: rgba(255,255,255,0.2); }
+
+  .scan-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 22px; border-radius: 12px; border: none;
+    font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; transition: all 0.2s; margin-top: 14px;
+  }
+  .scan-btn:not(.cancel):not(.ai):not(.save) {
+    background: rgba(0,245,255,0.1); border: 1px solid rgba(0,245,255,0.3); color: var(--neon-cyan);
+  }
+  .scan-btn:not(.cancel):not(.ai):not(.save):hover { background: rgba(0,245,255,0.18); }
+  .scan-btn.ai { background: rgba(191,0,255,0.1); border: 1px solid rgba(191,0,255,0.3); color: var(--neon-purple); }
+  .scan-btn.ai:hover { background: rgba(191,0,255,0.2); }
+  .scan-btn.ai:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scan-btn.save { background: rgba(57,255,20,0.1); border: 1px solid rgba(57,255,20,0.3); color: var(--neon-green); }
+  .scan-btn.save:hover { background: rgba(57,255,20,0.18); }
+  .scan-btn.cancel { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); }
+  .scan-btn.cancel:hover { border-color: var(--neon-pink); color: var(--neon-pink); }
+
+  /* ── Scan text display ── */
+  .scan-text-display {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+    border-radius: 14px; padding: 20px 24px; line-height: 2.2;
+    font-size: 0.88rem; color: rgba(255,255,255,0.75);
+    max-height: 50vh; overflow-y: auto; user-select: none;
+  }
+  .scan-word {
+    cursor: pointer; border-radius: 4px; padding: 1px 2px;
+    transition: all 0.12s; border-bottom: 1px solid transparent;
+  }
+  .scan-word:hover { background: rgba(0,245,255,0.08); border-bottom-color: rgba(0,245,255,0.3); }
+  .scan-word.selected {
+    background: rgba(0,245,255,0.15); color: var(--neon-cyan);
+    border-bottom: 2px solid var(--neon-cyan); font-weight: 600;
+  }
+
+  /* ── Selected bar & chips ── */
+  .scan-selected-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+    border-radius: 12px; font-size: 0.78rem; color: rgba(255,255,255,0.5);
+  }
+  .scan-selected-bar strong { color: var(--neon-cyan); }
+
+  .scan-selected-list {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; min-height: 20px;
+  }
+  .scan-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 8px; font-size: 0.72rem;
+    font-family: 'Space Mono', monospace;
+  }
+  .scan-chip:not(.found):not(.missing) {
+    background: rgba(0,245,255,0.1); border: 1px solid rgba(0,245,255,0.25); color: var(--neon-cyan);
+  }
+  .scan-chip.found { background: rgba(57,255,20,0.08); border: 1px solid rgba(57,255,20,0.2); color: var(--neon-green); }
+  .scan-chip.missing { background: rgba(255,0,110,0.08); border: 1px solid rgba(255,0,110,0.2); color: var(--neon-pink); }
+  .scan-chip-x { cursor: pointer; opacity: 0.5; font-size: 0.65rem; }
+  .scan-chip-x:hover { opacity: 1; }
+
+  /* ── Step 3 results ── */
+  .scan-result-row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .scan-result-stat {
+    padding: 10px 16px; border-radius: 10px; font-size: 0.75rem;
+    font-family: 'Space Mono', monospace; flex: 1; min-width: 150px;
+  }
+  .scan-result-stat.found { background: rgba(57,255,20,0.06); border: 1px solid rgba(57,255,20,0.15); color: rgba(57,255,20,0.7); }
+  .scan-result-stat.missing { background: rgba(255,0,110,0.06); border: 1px solid rgba(255,0,110,0.15); color: rgba(255,0,110,0.7); }
+  .scan-result-stat strong { color: #fff; }
+
+  .scan-found-list, .scan-missing-list {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px;
+  }
+  .scan-pack-name-row { margin: 16px 0; }
+  .scan-pack-input {
+    width: 100%; padding: 12px 16px; border-radius: 12px;
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,0.04);
+    color: #fff; font-family: 'Inter', sans-serif; font-size: 0.85rem; outline: none;
+  }
+  .scan-pack-input:focus { border-color: var(--neon-cyan); }
+  .scan-pack-input::placeholder { color: rgba(255,255,255,0.2); }
+
+  .scan-ai-prompt {
+    padding: 14px 18px; border-radius: 12px; margin: 14px 0;
+    background: rgba(191,0,255,0.05); border: 1px solid rgba(191,0,255,0.15);
+    font-size: 0.78rem; color: rgba(255,255,255,0.6);
+  }
+  .scan-ai-prompt strong { color: var(--neon-purple); }
+
+  .scan-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+  /* ── Nút CSDL cho admin ── */
+  .btn-dict {
+    display: block; width: 100%; margin-top: 6px; padding: 7px 12px;
+    border-radius: 10px; border: 1px solid rgba(0,245,255,0.2);
+    background: rgba(0,245,255,0.05); color: rgba(0,245,255,0.6);
+    font-family: 'Space Mono', monospace; font-size: 0.65rem;
+    cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .btn-dict:hover { background: rgba(0,245,255,0.12); border-color: rgba(0,245,255,0.4); }
+  .btn-dict.active {
+    background: rgba(0,245,255,0.15); border-color: rgba(0,245,255,0.5);
+    color: var(--neon-cyan); font-weight: 700;
+  }
+
+  @media (max-width: 600px) {
+    .scan-modal { border-radius: 14px; }
+    .scan-text-display { font-size: 0.82rem; padding: 16px; }
+    .scan-result-row { flex-direction: column; }
+  }
+
